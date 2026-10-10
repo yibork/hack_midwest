@@ -127,6 +127,7 @@ class Recommendation(Base):
     target_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     lead_time_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     rationale_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    template_rationale: Mapped[str | None] = mapped_column(Text, nullable=True)  # engine text, kept when an AI draft replaces it
 
 
 class Decision(Base):

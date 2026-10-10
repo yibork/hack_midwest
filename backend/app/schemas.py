@@ -161,7 +161,9 @@ class Recommendation(ORMModel):
     target_mode: str | None = "next_operating_day"
     target_note: str | None = None  # "Mon Oct 12 is a federal holiday (Columbus Day); next workday Tue Oct 13."
     lead_time_hours: float | None = None  # evaluation time -> start of the target day's commute window
-    rationale_note: str | None = None  # "AI draft" | "AI draft rejected: <reason> - template used" | "LLM unavailable - template used"
+    # "AI draft pending" | "AI draft" | "AI draft rejected: <reason> - template used" | "LLM unavailable - template used"
+    rationale_note: str | None = None
+    template_rationale: str | None = None  # the engine's text (kept when an AI draft replaces it)
 
 
 HHMM = Annotated[str, StringConstraints(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")]

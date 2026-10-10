@@ -111,7 +111,12 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
         title={
           <span className="flex flex-wrap items-center gap-2">
             Rationale
-            <span className={`rounded px-2 py-0.5 text-xs font-semibold normal-case tracking-normal ${rec.rationale_source === "agent" ? "bg-indigo-100 text-indigo-800" : "bg-amber-100 text-amber-900"}`}>
+            <span className={`rounded px-2 py-0.5 text-xs font-semibold normal-case tracking-normal ${
+              rec.rationale_note === "AI draft pending" ? "bg-sky-100 text-sky-900"
+                : rec.rationale_source === "agent" ? "bg-indigo-100 text-indigo-800" : "bg-amber-100 text-amber-900"}`}>
+              {rec.rationale_note === "AI draft pending" && (
+                <span className="mr-1 inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-sky-300 border-t-sky-700 align-middle" />
+              )}
               {rec.rationale_note ?? (rec.rationale_source === "agent" ? "AI draft" : "Template")}
             </span>
           </span>

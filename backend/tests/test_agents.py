@@ -209,7 +209,8 @@ def test_writer_accepts_bare_posture_label():
 
 def test_writer_rejects_missing_posture_and_too_long():
     assert "does not state" in writer_agent.validate_rationale("Gusts of 61.0 mph.", "closure", FACTS)
-    assert "too long" in writer_agent.validate_rationale("closure " * 121, "closure", FACTS)
+    assert "too long" in writer_agent.validate_rationale("closure " * 141, "closure", FACTS)
+    assert writer_agent.validate_rationale("closure " * 130, "closure", FACTS) is None  # 140 is the hard limit
 
 
 def test_writer_accepts_faithful_paragraph():
@@ -241,7 +242,10 @@ def test_pipeline_falls_back_when_model_unreachable(monkeypatch, canned_nws):
     use_model(monkeypatch, FailingModel())
     with SessionLocal() as db:
         rec = pipeline.evaluate_facility(db, db.get(Facility, FACILITY_ID))
-        assert rec.rationale_source == "template"
+        assert rec.rationale_note == "AI draft pending"  # shown at once; the writer runs in the background
+        writer_agent.wait(rec.id)
+        db.refresh(rec)
+        assert rec.rationale_source == "template" and rec.rationale_note == "LLM unavailable - template used"
         assert rec.posture == "normal"
         assert rec.rationale.startswith("For USDA Kansas City Field Office")
         kinds = {e.kind for e in weather_agent.evidence_for(rec.evaluation_id)}
@@ -343,15 +347,17 @@ def test_writer_retries_once_after_a_length_rejection(monkeypatch):
 
     def fake_draft(rec, facts, state, timeout, feedback=None):
         calls.append(feedback)
-        return ("word " * 130 + "normal operations.", "normal") if not feedback else (
+        return ("word " * 150 + "normal operations.", "normal") if not feedback else (
             "The rules engine recommends normal operations; a manager must approve.", "normal")
     monkeypatch.setattr(writer_agent, "draft", fake_draft)
     state = runtime.new_state(evaluation_id=f"retry-{uuid.uuid4().hex[:6]}", facility_id="f")
     text, source, label = writer_agent.write_rationale(rec, [], facility_name="X", tz="America/Chicago",
                                                        state=state, timeout=5)
-    assert source == "agent" and label == "AI draft" and len(calls) == 2 and calls[1].startswith("too long")
+    assert source == "agent" and label == "AI draft" and len(calls) == 2
+    # the retry states the exact count and how much to cut
+    assert calls[1].startswith("it has 152 words; the hard limit is 140. Cut at least 42 words")
 
-    monkeypatch.setattr(writer_agent, "draft", lambda *a, **k: ("word " * 130 + "normal operations.", "normal"))
+    monkeypatch.setattr(writer_agent, "draft", lambda *a, **k: ("word " * 150 + "normal operations.", "normal"))
     text, source, label = writer_agent.write_rationale(rec, [], facility_name="X", tz="America/Chicago",
                                                        state=state, timeout=5)
     assert source == "template" and label.startswith("AI draft rejected: too long") and text == "Template text."
@@ -379,3 +385,29 @@ def test_writer_allows_threshold_references():
              "this to closure. A manager must approve before staff are notified.")
     assert writer_agent.validate_rationale(draft, "normal", facts, "normal") is None
     assert writer_agent.validate_rationale(draft + " Staff should plan a delayed arrival.", "normal", facts)
+
+
+
+def test_recommendation_is_returned_before_the_writer_and_then_updated(monkeypatch, canned_nws):
+    """The page shows the template at once ("AI draft pending"); a valid AI draft replaces it later."""
+    import threading
+    release = threading.Event()
+
+    def slow_draft(rec, facts, state, timeout, feedback=None):
+        release.wait(10)
+        return (f"The rules engine recommends normal operations for {facts['operating_date']}. "
+                "A manager must approve before staff are notified.", "normal")
+    monkeypatch.setattr(runtime, "llm_configured", lambda: True)
+    monkeypatch.setattr(writer_agent, "draft", slow_draft)
+    monkeypatch.setattr(weather_agent, "run", lambda *a, **k: (_ for _ in ()).throw(runtime.AgentUnavailable("off")))
+    with SessionLocal() as db:
+        rec = pipeline.evaluate_facility(db, db.get(Facility, FACILITY_ID))
+        assert rec.rationale_note == "AI draft pending" and rec.rationale == rec.template_rationale
+        template = rec.template_rationale
+        release.set()
+        writer_agent.wait(rec.id)
+        db.refresh(rec)
+    assert rec.rationale_source == "agent" and rec.rationale_note == "AI draft"
+    assert rec.rationale.startswith("The rules engine recommends normal operations") and rec.template_rationale == template
+    updated = [e for e in events("rationale.updated") if e.payload["recommendation_id"] == rec.id]
+    assert len(updated) == 1 and updated[0].payload["template"] == template and updated[0].payload["ai_draft"] == rec.rationale

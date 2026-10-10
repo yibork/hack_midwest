@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, newEvaluationId, type EvaluateTarget, type RecommendationDetail } from "../api";
 import AgentActivity from "../components/AgentActivity";
@@ -37,6 +37,27 @@ export default function FacilityPage() {
       setEvaluating(false);
     }
   }
+
+  const pending = latest.data?.rationale_note === "AI draft pending";
+  // The recommendation is shown as soon as the rules engine finishes; the AI draft lands later.
+  useEffect(() => {
+    const rec = latest.data;
+    if (!pending || !rec) return;
+    const started = Date.now();
+    const t = setInterval(async () => {
+      try {
+        const fresh = await api.recommendation(rec.id);
+        if (fresh.rationale_note !== "AI draft pending" || Date.now() - started > 180_000) {
+          latest.setData(fresh);
+          clearInterval(t);
+        }
+      } catch {
+        /* keep the template on screen; try again next tick */
+      }
+    }, 2000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, latest.data?.id]);
 
   if (facilities.loading) return <Loading />;
   if (facilities.error) return <ErrorBox error={facilities.error} onRetry={facilities.reload} />;
@@ -103,7 +124,7 @@ export default function FacilityPage() {
           />
         )}
       </div>
-      <AgentActivity evaluationId={evaluating ? runningEval : rec?.evaluation_id ?? runningEval} live={evaluating} />
+      <AgentActivity evaluationId={evaluating ? runningEval : rec?.evaluation_id ?? runningEval} live={evaluating || pending} />
     </div>
   );
 }

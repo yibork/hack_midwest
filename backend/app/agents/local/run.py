@@ -35,6 +35,8 @@ def fact_evidence(fact: dict, item: dict, src: ls.Source, agent: str, how: str, 
     routes = ", ".join(fact["routes_mentioned"])
     where = (f"{fact['distance_km']:g} km from facility" if fact.get("distance_km") is not None
              else "location uncertain (no coordinates)")
+    n = len(fact.get("affected_employee_ids") or [])
+    rel = f"commute (affects {n} commute{'s' if n != 1 else ''})" if fact["relevance"] == "commute" else fact["relevance"]
     return schemas.Evidence(
         id=uuid.uuid4().hex, source="local", kind="local_fact",
         value={**fact, "agent": agent, "source_id": src.id, "source_name": src.name, "authority": src.authority,
@@ -43,7 +45,7 @@ def fact_evidence(fact: dict, item: dict, src: ls.Source, agent: str, how: str, 
                "category": item.get("category"), "active_since": item.get("active_since")},
         source_time=reported, retrieved_at=now, valid_until=now + timedelta(minutes=src.refresh_minutes),
         url=item["link"], relevance_note=f"{agent}: {fact['fact_type'].replace('_', ' ')}"
-                                         f"{' on ' + routes if routes else ''}; {fact['relevance']}, {where} ({src.name})",
+                                         f"{' on ' + routes if routes else ''}; {rel}, {where} ({src.name})",
         status="ok")
 
 

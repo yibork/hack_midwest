@@ -110,6 +110,8 @@ def test_lead_time_caps_confidence(hours_before, confidence):
     capped = [r for r in rec.confidence_reasons if r.startswith("Forecast is")]
     assert bool(capped) == (hours_before > 24)
     if capped:
+        assert rec.confidence_reasons[0] == capped[0]  # the reason that set the level is listed first
+    if capped:
         assert f"Forecast is {hours_before} h out; NWS watches/warnings for this day may not be issued yet" in capped[0]
 
 

@@ -232,8 +232,12 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
     # 3. Confidence. Missing data is never treated as safe: it lowers confidence and says so.
     level, reasons = 0, []
 
+    level_reason: str | None = None  # the reason that set the final level; listed first
+
     def lower(to: int, reason: str):
-        nonlocal level
+        nonlocal level, level_reason
+        if to > level:
+            level_reason = reason
         level = max(level, to)
         reasons.append(reason)
 
@@ -273,6 +277,7 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
         reasons.append("All required sources returned current data and no values are near a threshold.")
     if local.corroborations and level > 0:  # one level at most, and only with a fired weather rule
         level -= 1
+        level_reason = local.corroborations[0] + " Confidence raised one level." if level else None
         reasons.append(local.corroborations[0] + " Confidence raised one level.")
     elif local.corroborations:
         reasons.append(local.corroborations[0])
@@ -285,11 +290,14 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
     weather_driven = not triggers or any(t.rule_id != "access_route_closed" for t in triggers)
     if weather_driven and lead_h > 24:
         cap = 2 if lead_h > 48 else 1
+        cap_reason = (f"Forecast is {round(lead_h)} h out; NWS watches/warnings for this day may not be issued "
+                      f"yet (confidence capped at {['high', 'medium', 'low'][cap]}).")
         if level < cap:
-            level = cap
-        reasons.append(f"Forecast is {round(lead_h)} h out; NWS watches/warnings for this day may not be issued "
-                       f"yet (confidence capped at {['high', 'medium', 'low'][cap]}).")
+            level, level_reason = cap, cap_reason
+        reasons.append(cap_reason)
     confidence = ["high", "medium", "low"][level]
+    if level and level_reason in reasons:  # the reason that set the level comes first
+        reasons = [level_reason] + [r for r in reasons if r != level_reason]
 
     # 4. What would change the recommendation.
     changes: list[str] = []

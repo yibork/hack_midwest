@@ -97,9 +97,9 @@ export default function LocalSignals({ evidence, tz }: { evidence: Evidence[]; t
                     <a className="underline" href={f.link} target="_blank" rel="noreferrer">{f.location_text || f.title}</a>
                     {f.matches_facility_access_route && <span className="rounded bg-red-100 px-1 text-xs font-semibold text-red-800">on access segment {f.segments.join(", ")}</span>}
                     <span className="text-xs text-slate-600"><Where f={f} /></span>
-                    {f.affected_employee_ids?.length > 0 && (
-                      <span className="rounded bg-amber-100 px-1 text-xs text-amber-900">
-                        in {f.affected_employee_ids.length} commute corridor{f.affected_employee_ids.length > 1 ? "s" : ""} ({f.matches_employee_commute_routes.join(", ")})
+                    {f.relevance === "commute" && (
+                      <span className="rounded bg-amber-100 px-1 text-xs font-semibold text-amber-900">
+                        affects {f.affected_employee_ids.length} commute{f.affected_employee_ids.length === 1 ? "" : "s"} ({f.matches_employee_commute_routes.join(", ")})
                       </span>
                     )}
                     <span className="text-xs text-slate-500"><Since f={f} /> · {f.confidence}</span>

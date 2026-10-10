@@ -10,10 +10,12 @@ from pydantic import BaseModel
 
 from .. import record
 from ..schemas import Evidence, Posture, Recommendation
+from . import runtime
 from .runtime import AgentUnavailable, invoke, make_agent, record_unavailable
 
 NAME = "writer_agent"
-MAX_WORDS = 120
+MAX_WORDS = 140  # hard limit; the prompt targets 90-110
+TARGET_WORDS = (90, 110)
 
 # How each posture is spotted in free text (English and Spanish).
 POSTURE_PATTERNS = {
@@ -132,8 +134,7 @@ def draft(rec: Recommendation, facts: dict, state: dict, timeout: float, feedbac
     agent = make_agent(NAME, SYSTEM_PROMPT)
     prompt = "Write the rationale paragraph from these facts:\n" + json.dumps(facts, default=str, indent=1)
     if feedback:
-        prompt += (f"\n\nYour previous draft was rejected: {feedback}. Rewrite it within {MAX_WORDS} words "
-                   f"(aim for 90-110).")
+        prompt += f"\n\nYour previous draft was rejected: {feedback}"
     result = invoke(agent, prompt, state, timeout, structured_output_model=Rationale)
     out = result.structured_output
     if not isinstance(out, Rationale):
@@ -165,5 +166,58 @@ def write_rationale(rec: Recommendation, evidence: list[Evidence], *, facility_n
                           facility_id=ids["facility_id"], evaluation_id=ids["evaluation_id"])
         if not reason.startswith("too long") or attempt == 2:
             return rec.rationale, "template", f"AI draft rejected: {reason} - template used"
-        feedback = reason
+        n = len(text.split())
+        feedback = (f"it has {n} words; the hard limit is {MAX_WORDS}. Cut at least {n - TARGET_WORDS[1]} words "
+                    f"so it lands at {TARGET_WORDS[0]}-{TARGET_WORDS[1]} words, keeping every fact and number.")
     return rec.rationale, "template", "AI draft rejected - template used"  # pragma: no cover
+
+
+# ---------------------------------------------------------------- asynchronous drafting
+
+PENDING = "AI draft pending"
+_threads: dict[str, threading.Thread] = {}
+
+
+def start(rec_id: str, rec: Recommendation, evidence: list[Evidence], *, facility_name: str, tz: str,
+          state: dict, timeout: float) -> str:
+    """Draft in the background; the recommendation is already stored with the template.
+    Returns the label to store now: "AI draft pending", or "LLM unavailable - template used"."""
+    if not runtime.llm_configured():
+        record_unavailable(NAME, "inference not configured", "template rationale", state)
+        return "LLM unavailable - template used"
+    t = threading.Thread(target=_finish, name=f"writer-{rec_id[:8]}", daemon=True,
+                         args=(rec_id, rec, evidence, facility_name, tz, state, timeout))
+    _threads[rec_id] = t
+    t.start()
+    return PENDING
+
+
+def _finish(rec_id: str, rec: Recommendation, evidence: list[Evidence], facility_name: str, tz: str,
+            state: dict, timeout: float) -> None:
+    from ..db import SessionLocal
+    from ..models import Recommendation as RecRow
+
+    try:
+        text, source, label = write_rationale(rec, evidence, facility_name=facility_name, tz=tz, state=state,
+                                              timeout=timeout)
+    except Exception as e:  # noqa: BLE001 - never leave the label stuck on "pending"
+        text, source, label = rec.rationale, "template", f"AI draft failed: {type(e).__name__} - template used"
+    with SessionLocal() as s:
+        row = s.get(RecRow, rec_id)
+        if row is None:
+            return
+        if source == "agent":
+            row.rationale, row.rationale_source = text, "agent"
+        row.rationale_note = label
+        record.append(s, "rationale.updated", {
+            "agent": NAME, "recommendation_id": rec_id, "evaluation_id": state.get("evaluation_id"),
+            "rationale_source": source, "rationale_note": label,
+            "template": row.template_rationale, "ai_draft": text if source == "agent" else None,
+        }, facility_id=row.facility_id, evaluation_id=state.get("evaluation_id"))
+        s.commit()
+
+
+def wait(rec_id: str, timeout: float = 30) -> None:
+    t = _threads.get(rec_id)
+    if t is not None:
+        t.join(timeout)

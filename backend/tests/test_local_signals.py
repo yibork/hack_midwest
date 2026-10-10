@@ -322,6 +322,8 @@ def test_commute_corridor_matching():
     f = ok[0]
     assert f["relevance"] == "commute" and f["affected_employee_ids"] == ["op"]
     assert f["matches_employee_commute_routes"] == ["I-435"]
+    ev = fact_evidence(f, it, src("modot_traveler"), "roads", "agent", NOW)
+    assert "commute (affects 1 commute)" in ev.relevance_note
 
 
 # ---------------------------------------------------------------- rules

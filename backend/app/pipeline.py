@@ -102,10 +102,10 @@ def evaluate_facility(db: Session, facility: models.Facility, evaluation_id: str
     rec = evaluate(fac, evidence, now, operating_date=day, target_note=why, target_mode=mode)
     rec.evaluation_id = eid
 
-    # 3. Explanation: writer agent, validated; template on any problem.
-    rec.rationale, rec.rationale_source, rec.rationale_note = writer_agent.write_rationale(
-        rec, evidence, facility_name=fac.name, tz=fac.timezone,
-        state=new_state(evaluation_id=eid, facility_id=fac.id), timeout=settings.agent_timeout)
+    # 3. Explanation: stored now with the engine's template; the writer agent drafts in the
+    #    background and replaces it only if its draft passes validation (both versions recorded).
+    rec.rationale_source, rec.template_rationale = "template", rec.rationale
+    template_rec = rec.model_copy()
 
     row = models.Recommendation(**rec.model_dump(mode="python", exclude={"triggers"}),
                                 triggers=[t.model_dump() for t in rec.triggers])
@@ -118,6 +118,10 @@ def evaluate_facility(db: Session, facility: models.Facility, evaluation_id: str
         "rationale_note": rec.rationale_note,
         "evidence_ids": rec.evidence_ids, "rationale_source": rec.rationale_source,
     }, facility_id=fac.id, evaluation_id=eid)
+    db.commit()
+    row.rationale_note = writer_agent.start(
+        row.id, template_rec, evidence, facility_name=fac.name, tz=fac.timezone,
+        state=new_state(evaluation_id=eid, facility_id=fac.id), timeout=settings.agent_timeout)
     db.commit()
     if not fac.temporary:
         scheduler.schedule_for(db, facility, day)  # 15:00 the day before, 04:00 on the day

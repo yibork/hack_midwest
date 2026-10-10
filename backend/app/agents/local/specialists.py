@@ -69,7 +69,8 @@ def run_or_fallback(agent: str, items: list[dict], facility: dict, commute_route
                 "agent": name, "evaluation_id": state.get("evaluation_id"), "items_in": len(items),
                 "facts": len(facts), "rejected": rejected[:10],
                 "summary": [f"{f['fact_type']} {', '.join(f['routes_mentioned'])} {f['location_text'][:50]} "
-                            f"[{f['relevance']}{', %s km' % f['distance_km'] if f['distance_km'] is not None else ''}]"
+                            f"[{f['relevance']}{' (affects %d commutes)' % len(f['affected_employee_ids']) if f['relevance'] == 'commute' else ''}"
+                            f"{', %s km' % f['distance_km'] if f['distance_km'] is not None else ''}]"
                             for f in facts][:8],
             }, facility_id=state.get("facility_id"), evaluation_id=state.get("evaluation_id"))
             return facts, "agent", rejected
