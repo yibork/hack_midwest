@@ -1,5 +1,7 @@
 # Closure Call
 
+Live: http://172.238.168.201
+
 Decision support for a USDA facility manager: pull live National Weather Service data, recommend an
 operating posture (normal / delayed arrival / early dismissal / telework / closure), let the manager
 approve or override, notify the right employees, and keep a replayable decision record.
