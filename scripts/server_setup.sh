@@ -49,7 +49,9 @@ apt-get -y -q install git curl ca-certificates
 
 # ---------------------------------------------------------------- swap (frontend build can exceed 2 GB RAM)
 step "swap"
-if [[ -z "$(swapon --show --noheadings)" ]]; then
+# Linode images ship a 512 MB swap partition; that's not enough, so top up to >= 2 GB with a file.
+SWAP_MB=$(free -m | awk '/^Swap:/ {print $2}')
+if [[ ! -f /swapfile && $SWAP_MB -lt 1900 ]]; then
   fallocate -l 2G /swapfile
   chmod 600 /swapfile
   mkswap /swapfile
@@ -57,7 +59,7 @@ if [[ -z "$(swapon --show --noheadings)" ]]; then
   grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
   echo "added 2 GB /swapfile"
 else
-  echo "swap already present"
+  echo "swap ok (${SWAP_MB} MB)"
 fi
 
 # ---------------------------------------------------------------- docker
