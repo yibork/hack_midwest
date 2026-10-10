@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, create_engine
+from sqlalchemy import DateTime, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlalchemy.types import TypeDecorator
 
@@ -10,7 +10,8 @@ _is_sqlite = settings.database_url.startswith("sqlite")
 engine = create_engine(
     settings.database_url,
     # Agent hooks write from worker threads; wait for SQLite's write lock instead of failing.
-    connect_args={"check_same_thread": False, "timeout": 30} if _is_sqlite else {},
+    # Postgres: give up quickly so /api/health can report "unreachable" instead of hanging.
+    connect_args={"check_same_thread": False, "timeout": 30} if _is_sqlite else {"connect_timeout": 5},
     pool_pre_ping=True,
 )
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
@@ -57,3 +58,12 @@ def init_db() -> None:
     from . import models  # noqa: F401  (registers tables)
 
     Base.metadata.create_all(engine)
+
+
+def check_database() -> bool:
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False

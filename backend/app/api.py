@@ -32,10 +32,14 @@ def _aware(t: datetime | None) -> datetime | None:
 def health():
     from .agents.ratelimit import last_call
     from .config import settings
+    from .db import check_database, engine
+    from .seed import ensure_seeded
 
     problem = settings.inference_problem()
     return {
         "status": "ok",
+        "database": "ok" if ensure_seeded() and check_database() else "unreachable",
+        "database_backend": engine.dialect.name,  # "postgresql" or "sqlite"; never the URL
         "inference": "missing" if problem else "configured",
         "inference_problem": problem,  # never contains the key
         "model": settings.chat_model,

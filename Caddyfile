@@ -1,0 +1,11 @@
+# SITE_DOMAIN set (e.g. closurecall.example.com): automatic HTTPS for that name.
+# Unset: compose passes ":80", i.e. plain HTTP on any host name / the bare IP.
+{$SITE_DOMAIN} {
+	encode gzip
+	reverse_proxy app:8000
+}
+
+# Lets scripts/deploy.sh check http://localhost/api/health on the server in both modes.
+http://localhost {
+	reverse_proxy app:8000
+}

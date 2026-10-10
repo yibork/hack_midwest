@@ -3,6 +3,8 @@
 Run directly with `python -m app.seed`; the app also calls seed() on startup. Idempotent:
 the facility and roster are inserted once, and today's schedule rows are added if missing.
 """
+import logging
+import threading
 import unicodedata
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -58,6 +60,25 @@ ROSTER = [
 def _contact(name: str, channel: str) -> str:
     slug = unicodedata.normalize("NFKD", name.lower().replace(" ", ".")).encode("ascii", "ignore").decode()
     return f"{slug}@example.com" if channel == "email" else f"ntfy:{slug}"
+
+
+log = logging.getLogger(__name__)
+_ready = False
+_lock = threading.Lock()
+
+
+def ensure_seeded() -> bool:
+    """seed() once. If the database is unreachable (e.g. the managed Postgres allow list doesn't
+    include this host yet) keep serving; /api/health reports it and retries on the next call."""
+    global _ready
+    with _lock:
+        if not _ready:
+            try:
+                seed()
+                _ready = True
+            except Exception as e:
+                log.error("database not ready: %s", type(e).__name__)
+        return _ready
 
 
 def seed() -> None:

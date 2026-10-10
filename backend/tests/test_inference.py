@@ -148,3 +148,22 @@ def test_budget_stops_agent_after_12_model_calls(monkeypatch):
         ev = s.scalars(select(RecordEvent).where(RecordEvent.evaluation_id == "budget-eval-1",
                                                  RecordEvent.event_type == "llm_budget_reached")).all()
     assert len(ev) == 1 and ev[0].payload["limit"] == 12
+
+
+# ---------------------------------------------------------------- CI guard
+
+def test_live_inference_host_is_blocked():
+    import socket
+
+    from tests import conftest
+    with pytest.raises(OSError, match="live inference"):
+        socket.getaddrinfo("ws.akamai-workshops.com", 443)
+    assert conftest.live_inference_attempts == ["ws.akamai-workshops.com"]
+    conftest.live_inference_attempts.clear()  # expected here; don't fail this test
+
+
+def test_health_reports_database():
+    from app.main import app
+    with TestClient(app) as client:
+        body = client.get("/api/health").json()
+    assert body["database"] == "ok" and body["database_backend"] == "sqlite"

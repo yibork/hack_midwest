@@ -1,0 +1,46 @@
+# Production: the app (FastAPI serving the built frontend) behind Caddy. No database container:
+# DATABASE_URL in .env points at Akamai Managed PostgreSQL; if it's empty the app uses SQLite in
+# the `dbdata` volume. Deploy with scripts/deploy.sh; see README "Deployment".
+services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      CLOSURECALL_DOTENV: "0"  # values come from env_file; there is no .env inside the image
+      SQLITE_PATH: /app/data/db/closure_call.db  # used only when DATABASE_URL is empty
+      SNAPSHOT_DIR: /app/data/snapshots
+    volumes:
+      - snapshots:/app/data/snapshots
+      - dbdata:/app/data/db
+    expose:
+      - "8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Only this one value is passed to Caddy (from .env via compose interpolation).
+      # Unset or empty: plain HTTP on :80.
+      SITE_DOMAIN: ${SITE_DOMAIN:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  snapshots:
+  dbdata:
+  caddy_data:
+  caddy_config:

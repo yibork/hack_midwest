@@ -11,3 +11,33 @@ for name in ("OPENAI_API_KEY", "API_KEY", "OPENAI_BASE_URL", "BASE_URL"):
     os.environ[name] = ""
 os.environ["NTFY_TOPIC"] = ""
 os.environ["RESEND_API_KEY"] = ""
+
+# ---------------------------------------------------------------- no live inference
+# The Akamai endpoint is a shared team quota: any test that tries to resolve it fails, even if the
+# code under test swallows the connection error and falls back to the template.
+import socket  # noqa: E402
+
+import pytest  # noqa: E402
+
+LIVE_INFERENCE_HOST = "akamai-workshops.com"
+live_inference_attempts: list[str] = []
+_real_getaddrinfo = socket.getaddrinfo
+
+
+def _guarded_getaddrinfo(host, *args, **kwargs):
+    name = host.decode() if isinstance(host, bytes) else str(host or "")
+    if name == LIVE_INFERENCE_HOST or name.endswith("." + LIVE_INFERENCE_HOST):
+        live_inference_attempts.append(name)
+        raise OSError(f"tests must not call the live inference endpoint ({name})")
+    return _real_getaddrinfo(host, *args, **kwargs)
+
+
+socket.getaddrinfo = _guarded_getaddrinfo
+
+
+@pytest.fixture(autouse=True)
+def _no_live_inference():
+    live_inference_attempts.clear()
+    yield
+    if live_inference_attempts:
+        pytest.fail(f"test tried to reach the live inference endpoint: {live_inference_attempts}")

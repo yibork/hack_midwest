@@ -1,0 +1,68 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    # Automatic runs: only after CI passed on a push to main, and not when AUTO_DEPLOY is "false".
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       vars.AUTO_DEPLOY != 'false')
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+    steps:
+      - name: Check secrets
+        run: |
+          missing=""
+          [ -n "$DEPLOY_HOST" ] || missing="$missing DEPLOY_HOST"
+          [ -n "$DEPLOY_USER" ] || missing="$missing DEPLOY_USER"
+          [ -n "$DEPLOY_SSH_KEY" ] || missing="$missing DEPLOY_SSH_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::missing repository secrets:$missing (see README > Deployment)"
+            exit 1
+          fi
+
+      - name: Set up SSH key
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Deploy
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 \
+            "$DEPLOY_USER@$DEPLOY_HOST" '~/closure-call/scripts/deploy.sh'
+
+      - name: Summary
+        if: always()
+        run: |
+          commit=$(ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "$DEPLOY_USER@$DEPLOY_HOST" \
+            'git -C ~/closure-call rev-parse HEAD' 2>/dev/null || echo unknown)
+          # Optional repository variable PUBLIC_URL (e.g. https://closurecall.example.com).
+          # Without it the host comes from a secret, which GitHub masks as ***.
+          url="${{ vars.PUBLIC_URL }}"
+          [ -n "$url" ] || url="http://$DEPLOY_HOST"
+          {
+            echo "### Deploy ${{ job.status }}"
+            echo ""
+            echo "- Public URL: $url"
+            echo "- Deployed commit: \`$commit\`"
+            echo "- CI-tested commit: \`${{ github.event.workflow_run.head_sha || github.sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

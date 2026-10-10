@@ -35,7 +35,8 @@ def _pick(*names: str, default: str = "") -> str:
 
 
 def _database_url() -> str:
-    url = _pick("DATABASE_URL", default="sqlite:///./closure_call.db")
+    # SQLITE_PATH lets Docker keep the fallback DB in a volume without touching DATABASE_URL.
+    url = _pick("DATABASE_URL", default=f"sqlite:///{_pick('SQLITE_PATH', default='./closure_call.db')}")
     # Accept the common postgres:// forms and use the psycopg 3 driver.
     for prefix in ("postgres://", "postgresql://"):
         if url.startswith(prefix):

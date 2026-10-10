@@ -63,9 +63,9 @@ npm install
 npm run dev                   # http://localhost:5173, proxies /api to :8000
 ```
 
-Tests (rules engine, no network): `cd backend && pytest`
+Tests (no network; the live inference host is blocked): `cd backend && pytest`
 
-## Run in production (Docker)
+## Run with Docker locally
 
 ```bash
 docker compose up --build     # http://localhost:8000
@@ -75,13 +75,145 @@ This builds the frontend, serves it from FastAPI with SPA fallback, and uses the
 Credentials come from the root `.env` via `env_file`; they are not copied into the image. For any other host, set
 `DATABASE_URL` and run the image; `postgres://` and `postgresql://` URLs both work.
 
+## Deployment
+
+### Architecture
+
+```
+GitHub push to main ──► CI (pytest + frontend build) ──► Deploy workflow ──ssh deploy@VM──► scripts/deploy.sh
+                                                                                          │
+Akamai Linode (Ubuntu 24.04, Chicago)   Cloud Firewall: 22, 80, 443                       ▼
+  caddy (:80/:443, automatic HTTPS if SITE_DOMAIN is set) ──► app (FastAPI + built frontend, :8000)
+                                                                │
+                                                                ├─► Akamai Managed PostgreSQL (DATABASE_URL, sslmode=require)
+                                                                │     or SQLite in the `dbdata` volume if DATABASE_URL is empty
+                                                                └─► Akamai inference, api.weather.gov
+```
+
+`compose.prod.yml` runs two containers, `app` and `caddy` (`restart: unless-stopped`). It has no
+database container. Data lives in the named volumes `snapshots`, `dbdata`, `caddy_data` and
+`caddy_config`. Secrets stay in `~/closure-call/.env` on the server (mode 600); they are never in the
+repo, the image or GitHub. The only value Caddy receives is `SITE_DOMAIN`.
+
+### One-time setup
+
+```bash
+# On your machine
+ssh-keygen -t ed25519 -N "" -f ~/.ssh/closurecall_deploy        # GitHub Actions → VM key (if missing)
+scp scripts/server_setup.sh ~/.ssh/closurecall_deploy.pub root@<VM_IP>:
+ssh root@<VM_IP> bash server_setup.sh closurecall_deploy.pub https://github.com/<owner>/<repo>
+```
+
+`server_setup.sh` is idempotent. It does the following:
+- upgrades packages and adds 2 GB of swap (the frontend build needs it on a 2 GB VM)
+- installs Docker
+- creates the `deploy` user (in the `docker` group) with the Actions key
+- clones the repo to `/home/deploy/closure-call`
+
+If the repo is private, the script prints a public key and exits with code 2. Add that key under
+GitHub > Settings > Deploy keys, read-only, then rerun the script.
+
+Next, check that key login works for both users in fresh SSH sessions:
+
+```bash
+ssh -i ~/.ssh/closurecall_deploy deploy@<VM_IP> docker ps
+ssh root@<VM_IP> true
+```
+
+Only after both work, turn off password login. The script runs `sshd -t` before restarting ssh:
+
+```bash
+ssh root@<VM_IP> bash server_setup.sh closurecall_deploy.pub https://github.com/<owner>/<repo> --harden
+```
+
+Then copy the secrets and do the first deploy:
+
+```bash
+scp .env deploy@<VM_IP>:closure-call/.env && ssh deploy@<VM_IP> chmod 600 closure-call/.env
+ssh -i ~/.ssh/closurecall_deploy deploy@<VM_IP> closure-call/scripts/deploy.sh
+curl http://<VM_IP>/api/health
+```
+
+If `/api/health` shows `"database": "unreachable"` and you're using Managed PostgreSQL, add the VM's
+IP to the cluster's allow list: Cloud Manager > Databases > cluster > Networking.
+
+Optional: put `SITE_DOMAIN=closurecall.example.com` in the server's `.env`, point the DNS A record at
+the VM, and redeploy. Caddy then gets a certificate and serves HTTPS.
+
+### GitHub secrets and variables
+
+| Name | Kind | Value |
+|---|---|---|
+| `DEPLOY_HOST` | secret | VM public IP |
+| `DEPLOY_USER` | secret | `deploy` |
+| `DEPLOY_SSH_KEY` | secret | contents of `~/.ssh/closurecall_deploy` (private key) |
+| `AUTO_DEPLOY` | variable | `true`; set `false` to stop automatic deploys after CI |
+| `PUBLIC_URL` | variable (optional) | URL shown in the deploy job summary |
+
+```bash
+gh secret set DEPLOY_HOST --body <VM_IP>
+gh secret set DEPLOY_USER --body deploy
+gh secret set DEPLOY_SSH_KEY < ~/.ssh/closurecall_deploy
+gh variable set AUTO_DEPLOY --body true
+```
+
+### Pipeline
+
+The two workflows:
+- `.github/workflows/ci.yml` runs on every push and pull request. It runs backend pytest on
+  Python 3.11 with a dummy key and a mocked model, and builds the frontend on Node 20.
+  `tests/conftest.py` fails any test that tries to resolve `ws.akamai-workshops.com`, because the
+  inference quota is shared by the team.
+- `.github/workflows/deploy.yml` runs when CI succeeds on a push to `main`, or by hand from
+  Actions > Deploy > Run workflow. It SSHes to the VM as `deploy` and runs `scripts/deploy.sh`.
+  Deploys never overlap (concurrency group `deploy`). The job summary shows the URL and the
+  deployed commit.
+
+**AUTO_DEPLOY switch:** `gh variable set AUTO_DEPLOY --body false` pauses automatic deploys. Manual
+runs still work. Set it back to `true` to resume.
+
+### Manual deploy and rollback
+
+`scripts/deploy.sh` on the server does the following:
+1. Resets to `origin/main`.
+2. Runs `docker compose -f compose.prod.yml up -d --build`.
+3. Polls `http://localhost/api/health` for up to 120 s, requiring HTTP 200 and `"inference": "configured"`.
+
+If the check fails, the script resets to the previous commit, rebuilds, prints `ROLLED BACK` and exits 1.
+Every run is appended to `~/deploys.log`.
+
+```bash
+ssh deploy@<VM_IP> closure-call/scripts/deploy.sh          # deploy origin/main now
+ssh deploy@<VM_IP> cat deploys.log                          # history: time, commit, result
+```
+
+To roll back to a specific version, revert on `main` and push (`git revert <sha>`). The pipeline
+then deploys the revert. In an emergency on the server:
+
+```bash
+cd ~/closure-call && git reset --hard <good-sha> && docker compose -f compose.prod.yml up -d --build
+```
+
+The next deploy returns the server to `origin/main`.
+
+### Logs
+
+```bash
+ssh deploy@<VM_IP>
+cd ~/closure-call
+docker compose -f compose.prod.yml logs -f app      # application
+docker compose -f compose.prod.yml logs -f caddy    # proxy / TLS
+docker compose -f compose.prod.yml ps               # health status
+```
+
 ## Configuration (root `.env`, see `.env.example`)
 
 | Var | Purpose |
 |---|---|
 | `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `CHAT_MODEL`, `EMBEDDING_MODEL` | Akamai workshop inference |
 | `OBJ_ENDPOINT`, `OBJ_BUCKET`, `OBJ_ACCESS_KEY`, `OBJ_SECRET_KEY` | Object storage (not used yet) |
-| `DATABASE_URL` | Default `sqlite:///./closure_call.db` |
+| `DATABASE_URL` | Default SQLite at `SQLITE_PATH` (`./closure_call.db`; in production the `dbdata` volume) |
+| `SITE_DOMAIN` | Production only: domain for Caddy's automatic HTTPS; empty means plain HTTP on :80 |
 | `NWS_USER_AGENT` | Required by api.weather.gov; include a contact |
 | `LLM_REQUESTS_PER_MINUTE`, `LLM_CALLS_PER_EVALUATION` | Defaults 45 / 12 |
 | `AGENT_TIMEOUT_SECONDS`, `NOTIFY_AGENT_TIMEOUT_SECONDS` | Defaults 20 / 120; on timeout the deterministic path takes over |

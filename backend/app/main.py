@@ -7,14 +7,14 @@ from fastapi.responses import FileResponse
 
 from .api import router
 from .config import settings
-from .seed import seed
+from .seed import ensure_seeded
 
 logging.basicConfig(level=logging.INFO)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    seed()  # creates tables, inserts demo data if missing
+    ensure_seeded()  # creates tables, inserts demo data if missing; tolerates an unreachable DB
     yield
 
 
