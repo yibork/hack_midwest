@@ -366,3 +366,16 @@ def test_writer_label_when_llm_unavailable(monkeypatch):
     _, source, label = writer_agent.write_rationale(rec, [], facility_name="X", tz="America/Chicago",
                                                     state=runtime.new_state(evaluation_id="u1", facility_id="f"), timeout=5)
     assert source == "template" and label == "LLM unavailable - template used"
+
+
+
+def test_writer_allows_threshold_references():
+    """Live draft from 2026-10-10: naming the posture a threshold belongs to is not recommending it."""
+    facts = {"what_would_change": ["Gusts reaching 46 mph would move this to delayed_arrival; 58 mph to closure."],
+             "x": [13, 11.5, 2026, 11, 12, 18, 24, 59]}
+    draft = ("The rules engine recommends normal operations for the USDA Kansas City Field Office on Tuesday, October 13, "
+             "2026. NWS data retrieved at 18:24 CDT shows no active alerts. The forecast indicates clear skies with peak "
+             "commute gusts of 11.5 mph, well below the 46 mph threshold for delayed arrival. Gusts of 58 mph would move "
+             "this to closure. A manager must approve before staff are notified.")
+    assert writer_agent.validate_rationale(draft, "normal", facts, "normal") is None
+    assert writer_agent.validate_rationale(draft + " Staff should plan a delayed arrival.", "normal", facts)

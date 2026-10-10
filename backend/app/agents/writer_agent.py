@@ -87,7 +87,8 @@ _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 # Sentences where another posture may appear: conditions, what-would-change, negations.
 _CONDITIONAL = re.compile(r"\b(would|could|might|if|unless|only if|should .* reach|no .* (is|are) (warranted|needed|"
                           r"required|recommended)|not (warranted|needed|required|recommended)|rather than|instead of|"
-                          r"what would change|would move|would change|move this to|upgrade|escalat)", re.I)
+                          r"what would change|would move|would change|move this to|upgrade|escalat|"
+                          r"threshold|below the|under the|above the)", re.I)  # threshold references, not recommendations
 
 
 def assertive_postures(text: str) -> set[str]:
