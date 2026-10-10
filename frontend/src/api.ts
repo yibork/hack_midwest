@@ -14,15 +14,24 @@ export interface Facility {
   timezone: string;
   open_time: string;
   close_time: string;
-  access_routes: string[];
+  access_routes: AccessSegment[];
+  operating_days: number[] | null;
   temporary: boolean;
+}
+
+export interface AccessSegment {
+  route: string;
+  name: string;
+  points: [number, number][];
+  buffer_km: number;
+  ramps: boolean;
 }
 
 export interface Evidence {
   id: string;
   facility_id: string | null;
   evaluation_id: string | null;
-  source: "nws" | "nwps" | "modot" | "roster";
+  source: "nws" | "nwps" | "modot" | "roster" | "demo" | "local";
   kind: string;
   value: unknown;
   units: string | null;
@@ -41,7 +50,7 @@ export interface Trigger {
   description: string;
   threshold: number | string | null;
   observed: number | string | null;
-  margin: number | null;
+  margin: number | string | null; // e.g. "1 of 3 access routes closed"
   units: string | null;
   citation: string;
   posture: Posture;
@@ -75,6 +84,10 @@ export interface Recommendation {
   rationale_source: "agent" | "template";
   evidence_ids: string[];
   policy_version: string;
+  target_mode: "next_operating_day" | "explicit" | "demo_workday" | "scheduled" | null;
+  target_note: string | null;
+  lead_time_hours: number | null;
+  rationale_note: string | null; // "AI draft" | "AI draft rejected: <reason> - template used" | "LLM unavailable - template used"
 }
 
 export interface DecisionClock {
@@ -122,6 +135,13 @@ export interface RecommendationDetail extends Recommendation {
   decision: Decision | null;
   decide_by: string | null;
   people: PeopleSummary | null;
+  next_reevaluation: string | null;
+}
+
+/** Default: the next operating day. target_date: an explicit day. demo_workday: DEMO_MODE only. */
+export interface EvaluateTarget {
+  target_date?: string;
+  demo_workday?: boolean;
 }
 
 export interface DecisionIn {
@@ -272,6 +292,60 @@ export interface MyStatus {
   ack_url: string | null;
 }
 
+export type Authority = "official_federal" | "official_state" | "official_local" | "news";
+
+/** Evidence.value for kind "local_fact" (validated in code; see backend agents/local/facts.py). */
+export interface LocalFactValue {
+  item_id: string;
+  fact_type: string;
+  location_text: string;
+  routes_mentioned: string[];
+  counties: string[];
+  effective_from: string | null;
+  effective_until: string | null;
+  matches_facility_access_route: boolean;
+  matches_employee_commute_routes: string[];
+  supporting_quote: string;
+  confidence: "high" | "medium" | "low";
+  relevance: "facility" | "commute" | "not_relevant" | "uncertain";
+  distance_km: number | null;
+  segments: string[];
+  affected_employee_ids: string[];
+  agent: "roads" | "schools" | "public_safety" | "news";
+  source_id: string;
+  source_name: string;
+  authority: Authority;
+  title: string;
+  link: string;
+  reported_at: string | null;
+  extracted_by: "agent" | "code";
+  category: "construction" | "incident" | "flood" | "other" | null;
+  active_since: string | null;
+}
+
+export interface SourceRow {
+  id: string;
+  name: string;
+  url: string;
+  link: string | null;
+  kind: string;
+  agent: string;
+  authority: Authority;
+  area: { counties?: string[]; cities?: string[] };
+  refresh_minutes: number;
+  robots: string;
+  last_fetch: string | null;
+  status: string;
+  items_found: number | null;
+  error: string | null;
+}
+
+export interface SourcesResponse {
+  sources: SourceRow[];
+  integrated: { id: string; name: string; url: string; authority: string; note?: string }[];
+  skipped: { name: string; url: string; reason: string }[];
+}
+
 export interface Persona {
   employee_id: string;
   name: string;
@@ -374,13 +448,13 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
 }
 
 export const api = {
-  health: () => request<{ status: string }>("/health"),
+  health: () => request<{ status: string; demo_mode: boolean }>("/health"),
   facilities: () => request<Facility[]>("/facilities"),
   facility: (id: string) => request<Facility>(`/facilities/${id}`),
   latestRecommendation: (facilityId: string) =>
     request<RecommendationDetail | null>(`/facilities/${facilityId}/latest-recommendation`),
-  evaluate: (facilityId: string, evaluationId?: string) =>
-    post<RecommendationDetail>(`/facilities/${facilityId}/evaluate`, { evaluation_id: evaluationId }),
+  evaluate: (facilityId: string, evaluationId?: string, target: EvaluateTarget = {}) =>
+    post<RecommendationDetail>(`/facilities/${facilityId}/evaluate`, { evaluation_id: evaluationId, ...target }),
   evaluatePoint: (lat: number, lon: number, name: string, evaluationId?: string) =>
     post<RecommendationDetail>("/evaluate-point", { lat, lon, name, evaluation_id: evaluationId }),
   agentActivity: (p: { evaluation_id?: string; since?: string; facility_id?: string }) =>
@@ -399,6 +473,7 @@ export const api = {
   me: () => request<MyStatus>("/me"),
   ack: (notificationId: string) => post<Notification>(`/notifications/${notificationId}/ack`),
   viewers: () => request<Viewers>("/viewers"),
+  sources: () => request<SourcesResponse>("/sources"),
   simulate: (body: { kind: "zone_alert" | "road_closure" | "clear"; zone?: string; route?: string }) =>
     post<Record<string, unknown>>("/demo/simulate", body),
   nationalScan: () => request<NationalAlert[]>("/national-scan"),

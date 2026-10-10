@@ -45,6 +45,7 @@ def health():
         "inference": "missing" if problem else "configured",
         "inference_problem": problem,  # never contains the key
         "model": settings.chat_model,
+        "demo_mode": settings.demo_mode,
         "last_model_call": last_call(),  # {ok, at, error}; ok is null until the first call
     }
 
@@ -83,7 +84,10 @@ def evaluate_facility(facility_id: str, body: schemas.EvaluateIn | None = None, 
     eid = body.evaluation_id if body else None
     _check_new_evaluation_id(db, eid)
     try:
-        rec = pipeline.evaluate_facility(db, facility, eid)
+        rec = pipeline.evaluate_facility(db, facility, eid, target_date=body.target_date if body else None,
+                                         demo_workday=bool(body and body.demo_workday))
+    except ValueError as e:
+        raise HTTPException(403 if "DEMO_MODE" in str(e) else 422, str(e))
     except IntegrityError:
         raise HTTPException(409, f"evaluation {eid} already exists")
     return services.recommendation_detail(db, rec)
@@ -144,6 +148,32 @@ def notifications(decision_id: str, db: Session = Depends(get_db)):
     if notice is None:
         return []
     return db.scalars(select(models.Notification).where(models.Notification.notice_id == notice.id)).all()
+
+
+# ---------------------------------------------------------------- local signal sources
+
+@router.get("/sources")
+def list_sources(db: Session = Depends(get_db)):
+    """The local-signals allowlist with each source's last fetch, plus integrated and skipped sources."""
+    from .sources import local_signals as ls
+
+    latest: dict[str, models.Evidence] = {}
+    for e in db.scalars(select(models.Evidence).where(models.Evidence.kind == "local_feed")
+                        .order_by(models.Evidence.retrieved_at.desc()).limit(500)):
+        sid = (e.value or {}).get("source_id")
+        if sid and sid not in latest:
+            latest[sid] = e
+    rows = []
+    for src in ls.sources():
+        e = latest.get(src.id)
+        v = e.value if e else {}
+        rows.append({
+            "id": src.id, "name": src.name, "url": src.url, "link": src.link, "kind": src.kind, "agent": src.agent,
+            "authority": src.authority, "area": src.area, "refresh_minutes": src.refresh_minutes, "robots": src.robots,
+            "last_fetch": e.retrieved_at if e else None, "status": v.get("fetch_status") if e else "never fetched",
+            "items_found": v.get("item_count") if e else None, "error": v.get("error") if e else None,
+        })
+    return {"sources": rows, "integrated": ls.registry().get("integrated", []), "skipped": ls.skipped()}
 
 
 # ---------------------------------------------------------------- national scan

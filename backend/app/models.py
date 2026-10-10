@@ -18,7 +18,9 @@ class Facility(Base):
     timezone: Mapped[str] = mapped_column(String(64), default="America/Chicago")
     open_time: Mapped[str] = mapped_column(String(5))  # "HH:MM" local
     close_time: Mapped[str] = mapped_column(String(5))
-    access_routes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Access segments: [{route, name, points: [[lat, lon], ...], buffer_km, ramps}] (plain names accepted)
+    access_routes: Mapped[list] = mapped_column(JSON, default=list)
+    operating_days: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)  # None = Mon-Fri
     # Created by /api/evaluate-point (national scan); hidden from the facility list.
     temporary: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -81,6 +83,7 @@ class CriticalFunction(Base):
     code: Mapped[str] = mapped_column(String(40))  # animal_care | lab_freezer_monitoring | security | it_ops
     name: Mapped[str] = mapped_column(String(100))
     min_onsite: Mapped[dict[str, int]] = mapped_column(JSON, default=dict)  # posture -> people
+    operating_days: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)  # None = facility days
     notes: Mapped[str] = mapped_column(Text, default="")
 
 
@@ -120,6 +123,11 @@ class Recommendation(Base):
     rationale_source: Mapped[str] = mapped_column(String(10), default="template")  # agent | template
     evidence_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     policy_version: Mapped[str] = mapped_column(String(64))
+    target_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    target_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lead_time_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rationale_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    template_rationale: Mapped[str | None] = mapped_column(Text, nullable=True)  # engine text, kept when an AI draft replaces it
 
 
 class Decision(Base):
@@ -195,6 +203,21 @@ class MessageDraft(Base):
     body: Mapped[str] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(10))  # agent
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class ScheduledJob(Base):
+    """Automatic re-evaluations: 15:00 the day before the target day and 04:00 on it. They run the
+    deterministic pipeline and call agents only if the result changed."""
+
+    __tablename__ = "scheduled_jobs"
+    key: Mapped[str] = mapped_column(String(120), primary_key=True)  # facility|date|kind
+    facility_id: Mapped[str] = mapped_column(String(64), index=True)
+    operating_date: Mapped[date] = mapped_column(Date)
+    kind: Mapped[str] = mapped_column(String(20))  # day_before_1500 | target_0400
+    run_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    status: Mapped[str] = mapped_column(String(10), default="pending")  # pending | done | skipped | failed
+    ran_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class RecordEvent(Base):

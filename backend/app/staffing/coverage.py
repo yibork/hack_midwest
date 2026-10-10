@@ -28,10 +28,16 @@ def is_available(imp: Impact, posture: str) -> bool:
 
 
 def coverage(functions: list[CriticalFunction], impacts: list[Impact], posture: str,
-             call_ins: list[CallIn] = ()) -> list[CoverageItem]:
+             call_ins: list[CallIn] = (), day=None, workday: bool = True) -> list[CoverageItem]:
+    """day/workday: a function with its own operating_days (e.g. animal care, 7 days) is required
+    on them; others only on the facility's operating days."""
     items = []
     for fn in functions:
-        required = int(fn.min_onsite.get(posture, 0))
+        if fn.operating_days is not None and day is not None:
+            runs_today = day.weekday() in fn.operating_days
+        else:
+            runs_today = workday
+        required = int(fn.min_onsite.get(posture, 0)) if runs_today else 0
         qualified = [i for i in impacts if fn.code in i.employee.functions]
         available = [i for i in qualified if is_available(i, posture)]
         avail_ids = {i.employee.id for i in available}

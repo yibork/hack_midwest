@@ -3,16 +3,19 @@ an email. It may only rephrase. Any draft that names a different posture or cite
 isn't in the facts is discarded in favor of the deterministic template."""
 import json
 import re
+import threading
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
 
 from .. import record
-from ..schemas import Evidence, Recommendation
+from ..schemas import Evidence, Posture, Recommendation
+from . import runtime
 from .runtime import AgentUnavailable, invoke, make_agent, record_unavailable
 
 NAME = "writer_agent"
-MAX_WORDS = 120
+MAX_WORDS = 140  # hard limit; the prompt targets 90-110
+TARGET_WORDS = (90, 110)
 
 # How each posture is spotted in free text (English and Spanish).
 POSTURE_PATTERNS = {
@@ -28,9 +31,14 @@ SYSTEM_PROMPT = f"""You write the rationale for a facility operating-posture rec
 a deterministic rules engine. A USDA manager will paste your paragraph into an email.
 
 Rules:
-- One plain-language paragraph, at most {MAX_WORDS} words. No headings, lists or markdown.
-- State the recommended posture using exactly the posture label given (e.g. "recommends normal \
-operations", "recommends a delayed arrival"). Do not mention any other posture, even as a possibility.
+- One plain-language paragraph. Hard limit {MAX_WORDS} words (longer drafts are rejected); aim \
+for 90-110 words. No headings, lists or markdown.
+- Set stated_posture to the recommended posture exactly as given (e.g. "normal", "delayed_arrival").
+- State the recommended posture using the posture label given (e.g. "recommends normal \
+operations", "recommends a delayed arrival"). Other postures may appear only in conditional \
+sentences from what_would_change (e.g. "gusts of 58 mph would move this to closure") or negations \
+("no closure is warranted").
+- Mention the target day and why it was chosen if target_note is given.
 - Cite sources and times (e.g. "NWS alerts retrieved 11:13 CDT").
 - Use only numbers that appear in the facts. Do not round, convert or compute new numbers.
 - Say plainly if any data was unavailable, and that the manager must approve before staff are notified.
@@ -38,6 +46,7 @@ operations", "recommends a delayed arrival"). Do not mention any other posture, 
 
 
 class Rationale(BaseModel):
+    stated_posture: Posture  # the posture the paragraph recommends; must equal the engine's
     paragraph: str
 
 
@@ -68,6 +77,7 @@ def build_facts(rec: Recommendation, evidence: list[Evidence], facility_name: st
         "what_would_change": rec.what_would_change,
         "evidence": ev_facts,
         "deterministic_summary": rec.rationale,
+        "target_note": rec.target_note,
     }
 
 
@@ -75,19 +85,43 @@ def mentioned_postures(text: str) -> set[str]:
     return {p for p, pat in POSTURE_PATTERNS.items() if re.search(pat, text, re.IGNORECASE)}
 
 
-def validate_rationale(text: str, posture: str, facts: dict) -> str | None:
-    """Return a rejection reason, or None if the draft is acceptable."""
+_SENTENCE = re.compile(r"(?<=[.!?])\s+")
+# Sentences where another posture may appear: conditions, what-would-change, negations.
+_CONDITIONAL = re.compile(r"\b(would|could|might|if|unless|only if|should .* reach|no .* (is|are) (warranted|needed|"
+                          r"required|recommended)|not (warranted|needed|required|recommended)|rather than|instead of|"
+                          r"what would change|would move|would change|move this to|upgrade|escalat|"
+                          r"threshold|below the|under the|above the)", re.I)  # threshold references, not recommendations
+
+
+def assertive_postures(text: str) -> set[str]:
+    """Postures named in sentences that state a recommendation (not conditional or negated)."""
+    named: set[str] = set()
+    for sentence in _SENTENCE.split(text):
+        if not _CONDITIONAL.search(sentence):
+            named |= mentioned_postures(sentence)
+    return named
+
+
+def validate_rationale(text: str, posture: str, facts: dict, stated_posture: str | None = None) -> str | None:
+    """Return a rejection reason, or None if the draft is acceptable.
+
+    - stated_posture (structured output) must equal the recommendation.
+    - The paragraph must state the recommended posture, and may name other postures only in
+      conditional / what-would-change / negated sentences ("no closure is warranted", "gusts of
+      58 mph would move this to closure").
+    - Every number must appear in the facts. At most MAX_WORDS words."""
     if not text or not text.strip():
         return "empty draft"
+    if stated_posture is not None and stated_posture != posture:
+        return f"stated_posture {stated_posture} but the recommendation is {posture}"
     words = len(text.split())
     if words > MAX_WORDS:
         return f"too long ({words} words > {MAX_WORDS})"
-    named = mentioned_postures(text)
-    wrong = named - {posture}
+    wrong = assertive_postures(text) - {posture}
     if wrong:
         return f"names posture(s) {sorted(wrong)} but the recommendation is {posture}"
     label = posture.replace("_", " ")
-    if posture not in named and not re.search(rf"\b{label}\b", text, re.IGNORECASE):
+    if posture not in mentioned_postures(text) and not re.search(rf"\b{label}\b", text, re.IGNORECASE):
         return f"does not state the recommended posture ({label})"
     allowed = {float(n) for n in _NUMBER.findall(json.dumps(facts, default=str))}
     unknown = sorted({n for n in _NUMBER.findall(text) if float(n) not in allowed}, key=float)
@@ -96,31 +130,94 @@ def validate_rationale(text: str, posture: str, facts: dict) -> str | None:
     return None
 
 
-def draft(rec: Recommendation, facts: dict, state: dict, timeout: float) -> str:
+def draft(rec: Recommendation, facts: dict, state: dict, timeout: float, feedback: str | None = None) -> tuple[str, str]:
     agent = make_agent(NAME, SYSTEM_PROMPT)
     prompt = "Write the rationale paragraph from these facts:\n" + json.dumps(facts, default=str, indent=1)
+    if feedback:
+        prompt += f"\n\nYour previous draft was rejected: {feedback}"
     result = invoke(agent, prompt, state, timeout, structured_output_model=Rationale)
     out = result.structured_output
     if not isinstance(out, Rationale):
         raise AgentUnavailable("writer returned no structured output")
-    return " ".join(out.paragraph.split())
+    return " ".join(out.paragraph.split()), out.stated_posture
 
 
 def write_rationale(rec: Recommendation, evidence: list[Evidence], *, facility_name: str, tz: str,
-                    state: dict, timeout: float) -> tuple[str, str]:
-    """-> (rationale, "agent" | "template"). rec.rationale holds the engine's template."""
+                    state: dict, timeout: float) -> tuple[str, str, str]:
+    """-> (rationale, "agent" | "template", label). rec.rationale holds the engine's template.
+    A draft rejected for length gets one retry with the reason; then the template is used.
+    label: "AI draft" | "AI draft rejected: <reason> - template used" | "LLM unavailable - template used"."""
     facts = build_facts(rec, evidence, facility_name, tz)
-    try:
-        text = draft(rec, facts, state, timeout)
-    except AgentUnavailable as e:
-        record_unavailable(NAME, str(e), "template rationale", state)
-        return rec.rationale, "template"
-    reason = validate_rationale(text, rec.posture, facts)
     ids = {"evaluation_id": state.get("evaluation_id"), "facility_id": state.get("facility_id")}
-    if reason:
-        record.append_now("writer_rejected", {"agent": NAME, **ids, "reason": reason, "draft": text},
+    feedback = None
+    for attempt in (1, 2):
+        try:
+            text, stated = draft(rec, facts, {**state, "closed": threading.Event()} if attempt > 1 else state,
+                                 timeout, feedback)
+        except AgentUnavailable as e:
+            record_unavailable(NAME, str(e), "template rationale", state)
+            return rec.rationale, "template", "LLM unavailable - template used"
+        reason = validate_rationale(text, rec.posture, facts, stated)
+        if reason is None:
+            record.append_now("writer_accepted", {"agent": NAME, **ids, "words": len(text.split()), "attempt": attempt},
+                              facility_id=ids["facility_id"], evaluation_id=ids["evaluation_id"])
+            return text, "agent", "AI draft"
+        record.append_now("writer_rejected", {"agent": NAME, **ids, "reason": reason, "draft": text, "attempt": attempt},
                           facility_id=ids["facility_id"], evaluation_id=ids["evaluation_id"])
-        return rec.rationale, "template"
-    record.append_now("writer_accepted", {"agent": NAME, **ids, "words": len(text.split())},
-                      facility_id=ids["facility_id"], evaluation_id=ids["evaluation_id"])
-    return text, "agent"
+        if not reason.startswith("too long") or attempt == 2:
+            return rec.rationale, "template", f"AI draft rejected: {reason} - template used"
+        n = len(text.split())
+        feedback = (f"it has {n} words; the hard limit is {MAX_WORDS}. Cut at least {n - TARGET_WORDS[1]} words "
+                    f"so it lands at {TARGET_WORDS[0]}-{TARGET_WORDS[1]} words, keeping every fact and number.")
+    return rec.rationale, "template", "AI draft rejected - template used"  # pragma: no cover
+
+
+# ---------------------------------------------------------------- asynchronous drafting
+
+PENDING = "AI draft pending"
+_threads: dict[str, threading.Thread] = {}
+
+
+def start(rec_id: str, rec: Recommendation, evidence: list[Evidence], *, facility_name: str, tz: str,
+          state: dict, timeout: float) -> str:
+    """Draft in the background; the recommendation is already stored with the template.
+    Returns the label to store now: "AI draft pending", or "LLM unavailable - template used"."""
+    if not runtime.llm_configured():
+        record_unavailable(NAME, "inference not configured", "template rationale", state)
+        return "LLM unavailable - template used"
+    t = threading.Thread(target=_finish, name=f"writer-{rec_id[:8]}", daemon=True,
+                         args=(rec_id, rec, evidence, facility_name, tz, state, timeout))
+    _threads[rec_id] = t
+    t.start()
+    return PENDING
+
+
+def _finish(rec_id: str, rec: Recommendation, evidence: list[Evidence], facility_name: str, tz: str,
+            state: dict, timeout: float) -> None:
+    from ..db import SessionLocal
+    from ..models import Recommendation as RecRow
+
+    try:
+        text, source, label = write_rationale(rec, evidence, facility_name=facility_name, tz=tz, state=state,
+                                              timeout=timeout)
+    except Exception as e:  # noqa: BLE001 - never leave the label stuck on "pending"
+        text, source, label = rec.rationale, "template", f"AI draft failed: {type(e).__name__} - template used"
+    with SessionLocal() as s:
+        row = s.get(RecRow, rec_id)
+        if row is None:
+            return
+        if source == "agent":
+            row.rationale, row.rationale_source = text, "agent"
+        row.rationale_note = label
+        record.append(s, "rationale.updated", {
+            "agent": NAME, "recommendation_id": rec_id, "evaluation_id": state.get("evaluation_id"),
+            "rationale_source": source, "rationale_note": label,
+            "template": row.template_rationale, "ai_draft": text if source == "agent" else None,
+        }, facility_id=row.facility_id, evaluation_id=state.get("evaluation_id"))
+        s.commit()
+
+
+def wait(rec_id: str, timeout: float = 30) -> None:
+    t = _threads.get(rec_id)
+    if t is not None:
+        t.join(timeout)

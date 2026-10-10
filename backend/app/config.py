@@ -80,6 +80,12 @@ class Settings:
     demo_mode: bool = field(default_factory=lambda: _pick("DEMO_MODE", default="0").lower() in ("1", "true", "yes"))
     # Base URL for links in messages (ack links). In production set it to the public URL.
     public_base_url: str = field(default_factory=lambda: _pick("PUBLIC_BASE_URL", default="http://localhost:8000").rstrip("/"))
+    # Local signals layer (agents/local): roads, schools, public safety, news. Tests turn it off.
+    local_signals: bool = field(default_factory=lambda: _pick("LOCAL_SIGNALS", default="1") != "0")
+    # Local agents run in parallel with larger inputs than the weather agent.
+    local_agent_timeout: float = field(default_factory=lambda: float(_pick("LOCAL_AGENT_TIMEOUT_SECONDS", default="45")))
+    # Background scheduled re-evaluations (15:00 the day before, 04:00 on the target day).
+    scheduler_loop: bool = field(default_factory=lambda: _pick("SCHEDULER_LOOP", default="1") != "0")
     # Background ack reminder/escalation loop (tests call escalation.tick() directly instead).
     escalation_loop: bool = field(default_factory=lambda: _pick("ESCALATION_LOOP", default="1") != "0")
     # Draft message wording in the background right after each recommendation (tests turn it off).
@@ -88,7 +94,7 @@ class Settings:
     resolve_home_zones: bool = field(default_factory=lambda: _pick("RESOLVE_HOME_ZONES", default="1") != "0")
 
     # Per-call agent timeouts (seconds). On timeout the deterministic path takes over.
-    agent_timeout: float = field(default_factory=lambda: float(_pick("AGENT_TIMEOUT_SECONDS", default="20")))
+    agent_timeout: float = field(default_factory=lambda: float(_pick("AGENT_TIMEOUT_SECONDS", default="45")))
     # Team quota is 60 requests/min across all endpoints; we keep headroom.
     llm_requests_per_minute: int = field(default_factory=lambda: int(_pick("LLM_REQUESTS_PER_MINUTE", default="45")))
     llm_calls_per_evaluation: int = field(default_factory=lambda: int(_pick("LLM_CALLS_PER_EVALUATION", default="12")))

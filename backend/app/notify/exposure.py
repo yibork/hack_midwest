@@ -17,6 +17,7 @@ from ..db import SessionLocal, utcnow
 from ..models import Evidence
 from ..services import store_evidence
 from ..sources import nws
+from ..routes import normalize_routes
 from .impact import Exposure, ZoneAlert
 
 KIND = "home_zone_alerts"
@@ -75,11 +76,20 @@ def load(db: Session, facility_id: str, evaluation_id: str | None, now: datetime
         Evidence.kind.in_(["road_closure", "simulated_zone_alert"]),
         or_(Evidence.valid_until.is_(None), Evidence.valid_until > now))).all()
     routes = set()
+    closed_for: dict[str, set[str]] = {}
+    if evaluation_id:  # official state DOT closures inside an employee's commute corridor (agents/local)
+        for e in db.scalars(select(Evidence).where(Evidence.evaluation_id == evaluation_id,
+                                                   Evidence.kind == "local_fact")):
+            v = e.value if isinstance(e.value, dict) else {}
+            if v.get("authority") == "official_state" and v.get("fact_type") == "road_closure":
+                for emp in v.get("affected_employee_ids") or []:  # coordinates only; uncertain never counts
+                    closed_for.setdefault(emp, set()).update(v.get("matches_employee_commute_routes") or [])
     for e in extra:
         v = e.value if isinstance(e.value, dict) else {}
         if e.kind == "road_closure" and v.get("route"):
-            routes.add(v["route"])
+            routes |= normalize_routes([v["route"]])
         elif e.kind == "simulated_zone_alert" and v.get("zone"):
             alerts.append(ZoneAlert(zone=v["zone"], event=v.get("event") or "Winter Storm Warning",
                                     onset=nws.parse_dt(v.get("onset")), ends=nws.parse_dt(v.get("ends"))))
-    return Exposure(alerts=tuple(alerts), closed_routes=frozenset(routes))
+    return Exposure(alerts=tuple(alerts), closed_routes=frozenset(routes),
+                    closed_for=tuple((k, tuple(sorted(v))) for k, v in sorted(closed_for.items())))

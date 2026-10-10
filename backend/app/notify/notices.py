@@ -73,7 +73,13 @@ def plan_for(db: Session, facility: models.Facility, rec: models.Recommendation,
              previous: dict | None = None, call_ins: list[CallIn] = ()) -> Plan:
     now = now or utcnow()
     people, assignments, shifts, functions, names = load_inputs(db, facility, rec.operating_date)
-    ctx = context_for(facility, rec.operating_date, posture, now, functions, delay_hours, dismissal_time)
+    demo = rec.target_mode == "demo_workday"
+    if demo:  # DEMO: today is evaluated as a workday, so use the weekday schedule for it
+        from ..seed import roster_shifts
+
+        shifts = [s for s in shifts if s.date != rec.operating_date] + roster_shifts(rec.operating_date, workday=True)
+    ctx = context_for(facility, rec.operating_date, posture, now, functions, delay_hours, dismissal_time,
+                      demo_workday=demo)
     exposure = exposure_mod.load(db, facility.id, rec.evaluation_id, now)
     return build_plan(ctx, people, assignments, shifts, functions, exposure, base_url=settings.public_base_url,
                       previous=previous, call_ins=call_ins, facility_names=names)

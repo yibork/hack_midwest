@@ -17,6 +17,7 @@ schema only. Never use the Responses API, audio or image input.
 | `hooks.py` | `LLMBudget` (12 model calls per evaluation → `llm_budget_reached`), `AuditHook` (a RecordEvent per invocation, model call and tool call), `DispatchGuard` (cancels `send_*` without a Decision) |
 | `weather_agent.py` | Tools `fetch_alerts_for_facility`, `fetch_commute_window_forecast` store Evidence; the agent returns `{evidence_id, relevance_note, ambiguity_flags}` per row |
 | `writer_agent.py` | Rationale paragraph (≤120 words); validated, else template + `writer_rejected` |
+| `local/` | Local signals: `coordinator.py` picks agents within the call budget; `specialists.py` (roads, schools, public safety, news: one call each, no tools, LocalFacts schema only); `facts.py` validates every fact in code; `prefilter.py`; `run.py` |
 | `message_agent.py` | Message wording only: ONE model call per notice drafts a template per recipient group (placeholders for personal facts); each rendered message is validated, else the deterministic template. No send tools |
 
 ## Guarantees and where they're enforced

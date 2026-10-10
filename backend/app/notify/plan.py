@@ -150,7 +150,7 @@ def build_plan(ctx: PostureContext, people: list[schemas.Employee], assignments:
     previous = previous or {}
     names = {**OTHER_OFFICES, **(facility_names or {})}
     impacts = compute_impacts(ctx, people, assignments, shifts, exposure, names)
-    cov = coverage(functions, impacts, ctx.posture, list(call_ins))
+    cov = coverage(functions, impacts, ctx.posture, list(call_ins), day=ctx.operating_date, workday=ctx.workday)
     clock = decision_clock(impacts)
     rows = access_rows(ctx, impacts)
     local_now = ctx.now.astimezone(ctx.tz)
@@ -282,8 +282,11 @@ def load_inputs(db: Session, facility: models.Facility, day: date):
 
 def context_for(facility: models.Facility, operating_date: date, posture: str, now: datetime,
                 functions: list[schemas.CriticalFunction], delay_hours: int | None = None,
-                dismissal_time: str | None = None) -> PostureContext:
+                dismissal_time: str | None = None, demo_workday: bool = False) -> PostureContext:
+    from .. import calendar
+
     return PostureContext(
+        workday=demo_workday or calendar.is_operating_day(operating_date, facility.operating_days),
         facility_id=facility.id, facility_name=facility.name, timezone=facility.timezone,
         operating_date=operating_date, posture=posture, open_time=facility.open_time,
         close_time=facility.close_time, now=now, delay_hours=delay_hours, dismissal_time=dismissal_time,

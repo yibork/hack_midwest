@@ -1,0 +1,241 @@
+# Local signals: the ONLY URLs the local agents may read. Fetching never follows links outside a
+# source's allow_prefixes. Verified 2026-10-10 (status, content type, robots.txt for our
+# User-Agent and for AI agents). See docs/sources.md for the research notes.
+#
+# kind: api | json | rss | html     agent: roads | schools | public_safety | news
+# authority: official_federal | official_state | official_local | news
+# current_state: true means the feed lists active conditions (DOT feeds); the 24-hour window
+#   applies to report times only where the item has one.
+version: 1
+user_agent: "ClosureCall/0.1 (USDA facility weather decision support; local signals; +https://closurecall.duckdns.org)"
+kc_counties: &kc_counties [JACKSON, CLAY, PLATTE, CASS, RAY, LAFAYETTE, JOHNSON, WYANDOTTE, LEAVENWORTH, MIAMI, DOUGLAS]
+
+# Already integrated (listed for completeness; not fetched by this layer).
+integrated:
+  - {id: nws_alerts_point, name: "NWS active alerts by point", url: "https://api.weather.gov/alerts/active?point={lat},{lon}", authority: official_federal}
+  - {id: nws_alerts_national, name: "NWS active alerts (national)", url: "https://api.weather.gov/alerts/active", authority: official_federal}
+  - {id: nws_alerts_zone, name: "NWS active alerts by zone (employee home areas)", url: "https://api.weather.gov/alerts/active?zone={zone}", authority: official_federal}
+  - {id: nws_points, name: "NWS /points -> forecastHourly, forecastGridData", url: "https://api.weather.gov/points/{lat},{lon}", authority: official_federal}
+  - {id: nwps_kcdm7, name: "NOAA NWPS gauge KCDM7 (Missouri River at Kansas City)", url: "https://api.water.noaa.gov/nwps/v1/gauges/KCDM7", authority: official_federal,
+     note: "Registered as an Evidence source; no client exists in this codebase yet (the API answers 200)."}
+
+sources:
+  # ------------------------------------------------------------------ roads (official_state)
+  - id: modot_traveler
+    name: "MoDOT Traveler Information (work zones, incidents, flood closures)"
+    url: "https://traveler.modot.org/timconfig/feed/desktop/message.v2.json"
+    allow_prefixes: ["https://traveler.modot.org/timconfig/"]
+    kind: json
+    agent: roads
+    authority: official_state
+    area: {counties: [JACKSON, CLAY, PLATTE, CASS, RAY, LAFAYETTE], cities: [Kansas City, Independence, Lee's Summit, Liberty, Belton]}
+    refresh_minutes: 5
+    current_state: true
+    link: "https://traveler.modot.org/map/"
+    parse:
+      parser: json_list
+      id: OID
+      title: MSGS
+      text: MSG
+      strip_html: true
+      points: [[GEOM.y, GEOM.x]]
+      published_regex: "Impact reported at (\\d{1,2}:\\d{2} [AP]M) on (\\d{2}/\\d{2}/\\d{4})"
+      category_path: MT
+      category_map: {WZ: construction, TI: incident, FL: flood}
+      effective_patterns:   # when the condition started (MoDOT text), as opposed to when it was reported
+        - {regex: "scheduled from (\\d{2}-[A-Z]{3}-\\d{4})", format: "%d-%b-%Y"}
+        - {regex: "scheduled on (\\d{2}/\\d{2}/\\d{4}) beginning at (\\d{1,2}:\\d{2} [AP]M)", format: "%m/%d/%Y %I:%M %p"}
+      filters:
+        - {path: MT, not_in: [CL]}  # commuter lots are not road conditions
+        - {path: MSGL, county_suffix: [JACKSON, CLAY, PLATTE, CASS, RAY, LAFAYETTE]}
+    robots: "robots.txt returns 404 (no restrictions). This JSON is what traveler.modot.org/map loads (the old /reportv2 page is 404). The site uses Incapsula bot protection but serves the feed to a plain client."
+
+  - id: kandrive_events
+    name: "KanDrive (KDOT) traveler events"
+    url: "https://kstg.carsprogram.org/events_v1/api/eventReports"
+    allow_prefixes: ["https://kstg.carsprogram.org/events_v1/api/"]
+    kind: api
+    agent: roads
+    authority: official_state
+    area: {counties: [JOHNSON, WYANDOTTE, LEAVENWORTH, MIAMI, DOUGLAS], bbox: [38.4, -95.4, 39.5, -94.6]}
+    refresh_minutes: 5
+    current_state: true
+    link: "https://www.kandrive.gov/list"
+    parse:
+      parser: json_list
+      id: id
+      title: eventDescription.descriptionHeader
+      text: eventDescription.descriptionFull
+      strip_html: true
+      points: [[location.primaryPoint.lat, location.primaryPoint.lon], [location.secondaryPoint.lat, location.secondaryPoint.lon]]
+      published_epoch_ms: updateTime.time
+      effective_epoch_ms: beginTime.time
+      until_epoch_ms: endTime.time
+      bbox: {lat: location.primaryPoint.lat, lon: location.primaryPoint.lon}
+      # never stored: contacts (names and phone numbers of KDOT staff)
+    robots: "robots.txt 404 on kstg.carsprogram.org (no restrictions); kandrive.gov robots only disallows /images/. This is the public API the KanDrive app (Castle Rock CARS) calls."
+
+  - id: kcscout_incidents
+    name: "KC Scout incidents and scheduled closures (MoDOT/KDOT)"
+    url: "https://www.kcscout.net/DataProvider.asmx/LoadEntities"
+    method: POST
+    body: "{}"
+    allow_prefixes: ["https://www.kcscout.net/DataProvider.asmx/LoadEntities"]
+    kind: api
+    agent: roads
+    authority: official_state
+    area: {counties: [JACKSON, CLAY, PLATTE, CASS, JOHNSON, WYANDOTTE], cities: [Kansas City metro]}
+    refresh_minutes: 5
+    current_state: true
+    link: "https://www.kcscout.net/TrafficDashboard.aspx"
+    parse:
+      parser: json_list
+      items: d.Incident
+      title_join: [OnStreetName, AtCrossStreet]
+      text_join: [EventType, Description]
+      strip_html: true
+      published: StartDateTime
+      date_format: "%a %b %d %H:%M:%S %Z %Y"
+      category_path: EventType
+      category_map: {Incident: incident, Scheduled: construction}
+      points: [[Latitude, Longitude]]
+    robots: "robots.txt 404 (no restrictions). The JSON the KC Scout map loads (POST, empty body); it has coordinates, unlike the IncidentViewer.aspx page (used before 2026-10-11)."
+
+  # ------------------------------------------------------------------ schools
+  - id: kcps_news
+    name: "Kansas City Public Schools news"
+    url: "https://www.kcpublicschools.org/news"
+    allow_prefixes: ["https://www.kcpublicschools.org/"]
+    kind: html
+    agent: schools
+    authority: official_local
+    area: {counties: [JACKSON], cities: [Kansas City]}
+    refresh_minutes: 30
+    parse: {parser: css, item: ".article-info", title: ".title a", link: ".title a@href", date: ".article-date", date_format: "%B %d, %Y", excerpt: ".content"}
+    robots: "Allowed for our UA and AI agents."
+
+  - id: nkc_newsroom
+    name: "North Kansas City Schools newsroom"
+    url: "https://www.nkcschools.org/district/newsroom"
+    allow_prefixes: ["https://www.nkcschools.org/"]
+    kind: html
+    agent: schools
+    authority: official_local
+    area: {counties: [CLAY], cities: [North Kansas City, Gladstone, Kansas City North]}
+    refresh_minutes: 30
+    parse: {parser: css, item: "article", title: ".fsTitle a", link: ".fsTitle a@href", date: "time@datetime", excerpt: ".fsSummary"}
+    robots: "Allowed for our UA and AI agents."
+
+  - id: hickman_mills_news
+    name: "Hickman Mills C-1 news center"
+    url: "https://www.hickmanmills.org/around-the-mill-newscenter/news"
+    allow_prefixes: ["https://www.hickmanmills.org/"]
+    kind: html
+    agent: schools
+    authority: official_local
+    area: {counties: [JACKSON], cities: [Kansas City south]}
+    refresh_minutes: 30
+    parse: {parser: css, item: "article", title: ".fsTitle a", link: ".fsTitle a@href", date: "time@datetime", excerpt: ".fsSummary"}
+    robots: "Allowed for our UA and AI agents."
+
+  - id: isd_news
+    name: "Independence School District news"
+    url: "https://www.isdschools.org/community/district-news"
+    allow_prefixes: ["https://www.isdschools.org/"]
+    kind: html
+    agent: schools
+    authority: official_local
+    area: {counties: [JACKSON], cities: [Independence]}
+    refresh_minutes: 30
+    parse: {parser: css, item: "article", title: ".fsTitle a", link: ".fsTitle a@href", date: "time@datetime", excerpt: ".fsSummary"}
+    robots: "Allowed for our UA and AI agents. Its RSS endpoint (/site/RSS.aspx) returns 403, so the news page is used."
+
+  - id: kshb_school_closings
+    name: "KSHB 41 school closings and delays"
+    url: "https://www.kshb.com/weather/school-closings"
+    allow_prefixes: ["https://www.kshb.com/weather/school-closings"]
+    kind: html
+    agent: schools
+    authority: news
+    area: {counties: *kc_counties}
+    refresh_minutes: 15
+    parse: {parser: page_text, region_start: "closings system", region_end: "KSHB 41 Weather", empty_markers: ["no active closings"]}
+    robots: "Allowed for our UA (robots blocks only GPTBot). On 2026-10-10 the page said 'There are currently no active closings or delays', so the per-entry markup could not be inspected; the closings region is read as one page-level item."
+
+  # ------------------------------------------------------------------ public safety / utilities
+  - id: kcpd_news_releases
+    name: "Kansas City Missouri Police Department news releases"
+    url: "https://kcpolice.org/media/news-releases/"
+    allow_prefixes: ["https://kcpolice.org/media/news-releases/"]
+    kind: html
+    agent: public_safety
+    authority: official_local
+    area: {counties: [JACKSON, CLAY, PLATTE], cities: [Kansas City]}
+    refresh_minutes: 30
+    parse: {parser: css, item: ".tab-pane.active a[href*='/media/news-releases/']", title: "@text", link: "@href"}
+    robots: "Allowed for our UA and AI agents (kcpd.org redirects to kcpolice.org). Releases carry no dates on the list page: items are marked undated."
+
+  - id: evergy_outages
+    name: "Evergy outage map: customers out by county (Kubra StormCenter)"
+    url: "https://kubra.io/stormcenter/api/v1/stormcenters/b1493825-4ee3-4706-a986-99a763a733db/views/c1062d22-2919-487c-9000-e21b72b62278/currentState?preview=false"
+    allow_prefixes: ["https://kubra.io/stormcenter/api/v1/stormcenters/b1493825-4ee3-4706-a986-99a763a733db/", "https://kubra.io/data/"]
+    kind: api
+    agent: public_safety
+    authority: official_local
+    area: {counties: *kc_counties}
+    refresh_minutes: 10
+    current_state: true
+    link: "https://outagemap.evergy.com/"
+    parse: {parser: kubra_county, report: "366ea3b8-a72e-4eab-9fc8-eb8edcb0f249", min_customers_out: 200}
+    robots: "kubra.io robots.txt 404 (no restrictions); public, anonymous endpoints the outage map itself uses. Evergy is a private utility, filed as official_local for outage data only."
+
+  # ------------------------------------------------------------------ news
+  - id: kshb_local_news
+    name: "KSHB 41 local news (RSS)"
+    url: "https://www.kshb.com/news/local-news.rss"
+    allow_prefixes: ["https://www.kshb.com/news/local-news.rss"]
+    kind: rss
+    agent: news
+    authority: news
+    area: {counties: *kc_counties}
+    refresh_minutes: 15
+    parse: {parser: rss}
+    robots: "Allowed for our UA (robots blocks only GPTBot)."
+
+  - id: kcur_news
+    name: "KCUR 89.3 news (RSS)"
+    url: "https://www.kcur.org/news.rss"
+    allow_prefixes: ["https://www.kcur.org/news.rss"]
+    kind: rss
+    agent: news
+    authority: news
+    area: {counties: *kc_counties}
+    refresh_minutes: 15
+    parse: {parser: rss}
+    robots: "Allowed for our UA and AI agents."
+
+  - id: kcbeacon_news
+    name: "The Beacon, Kansas City (RSS)"
+    url: "https://thebeaconnews.org/feed/"
+    allow_prefixes: ["https://thebeaconnews.org/feed/"]
+    kind: rss
+    agent: news
+    authority: news
+    area: {counties: *kc_counties}
+    refresh_minutes: 30
+    parse: {parser: rss}
+    robots: "Allowed for our UA and AI agents. kcbeacon.org/feed/ now redirects here (the allowlist blocked the redirect until the URL was updated). Covers Kansas City and Wichita."
+
+# Researched and NOT used. The reason is shown on the Sources page.
+skipped:
+  - {name: "MoDOT Traveler Information report (traveler.modot.org/reportv2)", url: "https://traveler.modot.org/reportv2/", reason: "Returns 404; the map's JSON feed (modot_traveler) is used instead."}
+  - {name: "KMBC 9 school closings and RSS", url: "https://www.kmbc.com/weather/closings", reason: "robots.txt disallows AI agents (ClaudeBot, anthropic-ai, GPTBot); this text would be read by a model."}
+  - {name: "FOX4 KC closings and RSS", url: "https://fox4kc.com/weather/closings/", reason: "robots.txt disallows AI agents; the closings page also returns 403 to automated clients."}
+  - {name: "KCTV5 closings", url: "https://www.kctv5.com/weather/closings/", reason: "robots.txt disallows AI agents (ClaudeBot, anthropic-ai, Claude-Web, GPTBot)."}
+  - {name: "The Kansas City Star", url: "https://www.kansascity.com/news/local/", reason: "Timed out for automated clients, and robots.txt disallows AI agents."}
+  - {name: "City of Kansas City, MO news and notifications", url: "https://www.kcmo.gov/news", reason: "Returns 403 to automated clients (bot protection). Notify KC is sign-up only (SMS/email)."}
+  - {name: "Jackson County, MO emergency management", url: "https://www.jacksongov.org/", reason: "Returns 403 to automated clients (bot protection)."}
+  - {name: "Unified Government of Wyandotte County/KCK", url: "https://www.wycokck.org/", reason: "Returns 403 to automated clients, including robots.txt."}
+  - {name: "Shawnee Mission School District alerts", url: "https://www.smsd.org/families/alerts", reason: "Static page; no machine-readable list of announcements found."}
+  - {name: "KC Fire Department press releases", url: "https://www.kcmo.gov/city-hall/departments/fire", reason: "Hosted on kcmo.gov, which returns 403 to automated clients."}
+  - {name: "Social networks (X/Twitter, Facebook, Instagram)", url: "", reason: "Social networks are out of scope by policy (and require login or disallow automation)."}

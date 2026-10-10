@@ -1,0 +1,7 @@
+[
+ {"id": "CARS5-1", "eventDescription": {"descriptionHeader": "I-435 northbound: Road closed.", "descriptionFull": "<p>Between K-10 and Midland Dr in Lenexa. The road is closed due to a crash.</p>"},
+  "location": {"routeDesignator": "I-435", "primaryPoint": {"lat": 38.97, "lon": -94.80}}, "updateTime": {"time": 1791660000000}, "beginTime": {"time": 1791655000000}, "endTime": {"time": 1791700000000},
+  "contacts": [{"personName": "Synthetic Person", "phoneNumber": "5550100"}]},
+ {"id": "CARS5-2", "eventDescription": {"descriptionHeader": "US 169 in both directions: Shoulder closed.", "descriptionFull": "<p>South of Iola.</p>"},
+  "location": {"routeDesignator": "US 169", "primaryPoint": {"lat": 37.79, "lon": -95.41}}, "updateTime": {"time": 1791660000000}}
+]

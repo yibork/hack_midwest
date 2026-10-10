@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
+from . import calendar, schemas
 from .config import settings
 from .db import SessionLocal, init_db
 from .models import Assignment, CriticalFunction, Employee, Facility, Shift
@@ -49,15 +50,34 @@ HOMES = {
 SHIFTS = {"day": ("07:30", "16:00"), "early": ("05:00", "13:30"), "night": ("22:00", "06:00"),
           "short": ("07:30", "13:00")}
 
-FUNCTIONS = [
+# Access segments: the stretches employees actually use near the downtown facility. Points are
+# KC Scout camera locations along each route (MoDOT/KDOT), in driving order; buffer 2 km.
+ACCESS_SEGMENTS = [
+    {"route": "I-35", "name": "I-35 downtown (Cambridge Cir to Front St)", "buffer_km": 2.0, "ramps": False,
+     "points": [(39.07476, -94.61482), (39.07873, -94.59378), (39.08692, -94.59186), (39.09583, -94.59080),
+                (39.10128, -94.59455), (39.10526, -94.57067), (39.10908, -94.56599), (39.11984, -94.56442)]},
+    {"route": "I-70", "name": "I-70 downtown (Lewis & Clark Viaduct to Benton Blvd)", "buffer_km": 2.0, "ramps": False,
+     "points": [(39.11039, -94.61013), (39.10714, -94.59148), (39.10702, -94.58315), (39.10690, -94.57780),
+                (39.10256, -94.57276), (39.09975, -94.57301), (39.09610, -94.57040), (39.09578, -94.55946),
+                (39.09637, -94.55270), (39.09663, -94.54440)]},
+    {"route": "US-71", "name": "US-71 (19th St to Emanuel Cleaver II Blvd)", "buffer_km": 2.0, "ramps": False,
+     "points": [(39.09030, -94.57130), (39.08326, -94.56589), (39.07910, -94.56280), (39.06810, -94.56008),
+                (39.05551, -94.56154), (39.04598, -94.56162)]},
+]
+ALL_WEEK = [0, 1, 2, 3, 4, 5, 6]
+# Who works weekends and federal holidays (critical functions run 7 days): animal care (Ava,
+# Jordan), lab freezer night watch (Priya), security (Rafael days, Tina nights), facility ops nights.
+WEEKEND_CREW = {"ava", "jordan", "priya", "rafael", "tina", "selena"}
+
+FUNCTIONS = [  # code, name, min_onsite by posture, notes, operating days (None = facility days)
     ("animal_care", "Animal care", {"normal": 2, "delayed_arrival": 2, "early_dismissal": 2, "telework": 2, "closure": 2},
-     "Animals must be fed and checked twice a day, every day."),
+     "Animals must be fed and checked twice a day, every day.", ALL_WEEK),
     ("lab_freezer_monitoring", "Lab freezer monitoring", {p: 1 for p in ("normal", "delayed_arrival", "early_dismissal", "telework", "closure")},
-     "-80C freezers hold irreplaceable samples; alarms need a person onsite."),
+     "-80C freezers hold irreplaceable samples; alarms need a person onsite.", ALL_WEEK),
     ("security", "Security", {"normal": 2, "delayed_arrival": 2, "early_dismissal": 2, "telework": 1, "closure": 1},
-     "Security desk staffed whenever anyone is in the building."),
+     "Security desk staffed whenever anyone is in the building.", ALL_WEEK),
     ("it_ops", "IT operations", {"normal": 1, "delayed_arrival": 1, "early_dismissal": 1, "telework": 1, "closure": 0},
-     "Network and badge systems; remote support is enough on closure days."),
+     "Network and badge systems; remote support is enough on closure days.", None),
 ]
 
 # key, name, role, designation, supervisor key, functions, primary function, accommodation needs,
@@ -159,22 +179,44 @@ def ensure_seeded() -> bool:
         return _ready
 
 
+def roster_shifts(day, workday: bool | None = None) -> list[schemas.Shift]:
+    """Everyone's shift on `day`. Operating days follow the roster; weekends and federal holidays
+    only the weekend crew works (others are off). workday=True forces the weekday schedule (demo)."""
+    if workday is None:
+        workday = calendar.is_operating_day(day)
+    out = []
+    for key, *rest in ROSTER:
+        status, shift = rest[14], rest[15]
+        if not workday and key not in WEEKEND_CREW and status != "leave":
+            status, shift = "day_off", None
+        start, end = SHIFTS[shift] if shift and status == "onsite" else (None, None)
+        out.append(schemas.Shift(employee_id=emp_id(key), date=day, status=status, shift_start=start, shift_end=end))
+    return out
+
+
 def seed() -> None:
     init_db()
     today = datetime.now(ZoneInfo(TZ)).date()
     with SessionLocal() as db:
-        if db.get(Facility, FACILITY_ID) is None:
+        fac = db.get(Facility, FACILITY_ID)
+        if fac is None:
             db.add(Facility(
                 id=FACILITY_ID, name="USDA Kansas City Field Office (demo)",
                 address="Kansas City, MO (synthetic demo facility)", lat=39.0997, lon=-94.5786,
-                timezone=TZ, open_time="07:30", close_time="16:00",
-                access_routes=["I-35", "I-70", "US-71"],
+                timezone=TZ, open_time="07:30", close_time="16:00", access_routes=ACCESS_SEGMENTS,
             ))
             db.flush()
+        elif any(isinstance(r, str) for r in fac.access_routes or []):
+            fac.access_routes = ACCESS_SEGMENTS  # upgrade route names to segments
+        for f in db.scalars(select(CriticalFunction).where(CriticalFunction.facility_id == FACILITY_ID)):
+            days = next((row[4] for row in FUNCTIONS if row[0] == f.code), None)
+            if f.operating_days != days:
+                f.operating_days = days
         if not db.scalar(select(Employee).limit(1)):
             zones = _resolve_zones()
-            for code, name, mins, notes in FUNCTIONS:
-                db.add(CriticalFunction(facility_id=FACILITY_ID, code=code, name=name, min_onsite=mins, notes=notes))
+            for code, name, mins, notes, days in FUNCTIONS:
+                db.add(CriticalFunction(facility_id=FACILITY_ID, code=code, name=name, min_onsite=mins, notes=notes,
+                                        operating_days=days))
             for (key, name, role, desig, sup, fns, primary, needs, lang, channels, topic, home, commute, routes,
                  access, _, _, assignment) in ROSTER:
                 lat, lon, _, _ = HOMES[home]
@@ -196,16 +238,18 @@ def seed() -> None:
                                       start_date=today - timedelta(days=2), end_date=today + timedelta(days=assignment[2])))
             db.commit()
 
-        # Shifts for yesterday (overnight shifts run into today), today and tomorrow (the operating
-        # date rolls to tomorrow after close).
-        for day in (today - timedelta(days=1), today, today + timedelta(days=1)):
-            have = set(db.scalars(select(Shift.employee_id).where(Shift.date == day)))
-            for key, *rest in ROSTER:
-                status, shift = rest[14], rest[15]
-                if emp_id(key) in have:
-                    continue
-                start, end = SHIFTS[shift] if shift else (None, None)
-                db.add(Shift(employee_id=emp_id(key), date=day, status=status, shift_start=start, shift_end=end))
+        # Shifts from yesterday (overnight shifts run into today) through the next 8 days, from the
+        # calendar: weekdays follow the roster; weekends and federal holidays only the weekend crew.
+        # Rows are rewritten so the schedule stays consistent (synthetic demo data).
+        for i in range(-1, 9):
+            day = today + timedelta(days=i)
+            have = {sh.employee_id: sh for sh in db.scalars(select(Shift).where(Shift.date == day))}
+            for want in roster_shifts(day):
+                row = have.get(want.employee_id)
+                if row is None:
+                    db.add(Shift(**want.model_dump()))
+                else:
+                    row.status, row.shift_start, row.shift_end = want.status, want.shift_start, want.shift_end
         db.commit()
 
 

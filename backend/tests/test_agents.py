@@ -209,7 +209,8 @@ def test_writer_accepts_bare_posture_label():
 
 def test_writer_rejects_missing_posture_and_too_long():
     assert "does not state" in writer_agent.validate_rationale("Gusts of 61.0 mph.", "closure", FACTS)
-    assert "too long" in writer_agent.validate_rationale("closure " * 121, "closure", FACTS)
+    assert "too long" in writer_agent.validate_rationale("closure " * 141, "closure", FACTS)
+    assert writer_agent.validate_rationale("closure " * 130, "closure", FACTS) is None  # 140 is the hard limit
 
 
 def test_writer_accepts_faithful_paragraph():
@@ -224,12 +225,13 @@ def test_rejected_draft_falls_back_to_template(monkeypatch, canned_nws):
         rec = pipeline.evaluate_facility(db, db.get(Facility, FACILITY_ID))  # calm -> normal
     from app.schemas import Recommendation as RecSchema
     rec_s = RecSchema.model_validate(rec)
-    monkeypatch.setattr(writer_agent, "draft", lambda *a, **k: "The office should switch to telework today.")
+    monkeypatch.setattr(writer_agent, "draft", lambda *a, **k: ("The office should switch to telework today.", "normal"))
     before = len(events("writer_rejected"))
-    text, source = writer_agent.write_rationale(
+    text, source, label = writer_agent.write_rationale(
         rec_s, [], facility_name="X", tz="America/Chicago",
         state=runtime.new_state(evaluation_id=rec.evaluation_id, facility_id=FACILITY_ID), timeout=5)
     assert source == "template" and text == rec_s.rationale
+    assert label.startswith("AI draft rejected: names posture") and label.endswith("template used")
     rejected = events("writer_rejected")
     assert len(rejected) == before + 1 and "telework" in rejected[-1].payload["reason"]
 
@@ -240,7 +242,10 @@ def test_pipeline_falls_back_when_model_unreachable(monkeypatch, canned_nws):
     use_model(monkeypatch, FailingModel())
     with SessionLocal() as db:
         rec = pipeline.evaluate_facility(db, db.get(Facility, FACILITY_ID))
-        assert rec.rationale_source == "template"
+        assert rec.rationale_note == "AI draft pending"  # shown at once; the writer runs in the background
+        writer_agent.wait(rec.id)
+        db.refresh(rec)
+        assert rec.rationale_source == "template" and rec.rationale_note == "LLM unavailable - template used"
         assert rec.posture == "normal"
         assert rec.rationale.startswith("For USDA Kansas City Field Office")
         kinds = {e.kind for e in weather_agent.evidence_for(rec.evaluation_id)}
@@ -312,3 +317,97 @@ def test_message_agent_drafts_all_groups_in_one_call(monkeypatch, canned_nws):
     assert "office closed, telework" in agent_msg.message and agent_msg.employee.name.split()[0] in agent_msg.message
     assert any("06:45" in r["reason"] for r in stats["rejected"])
     assert len(calls) - calls_before == 1  # ONE model call for the whole notice
+
+
+
+def test_writer_allows_conditional_and_negated_postures():
+    facts = {"what_would_change": ["Gusts reaching 58 mph during the commute window would move this to closure."],
+             "operating_date": "Tuesday, October 13, 2026"}
+    ok = ("The rules engine recommends normal operations for Tuesday, October 13. No closure is warranted. "
+          "Gusts of 58 mph would move this to closure. A manager must approve before staff are notified.")
+    assert writer_agent.validate_rationale(ok, "normal", facts, "normal") is None
+    assert writer_agent.validate_rationale("No closure is warranted; normal operations.", "normal", facts) is None
+
+
+def test_writer_rejects_stated_posture_mismatch_and_numbers():
+    facts = {"what_would_change": ["Gusts reaching 58 mph would move this to closure."]}
+    text = "The rules engine recommends normal operations."
+    assert "stated_posture" in writer_agent.validate_rationale(text, "normal", facts, "closure")
+    assert "61" in writer_agent.validate_rationale(text + " Gusts of 61 mph would move this to closure.", "normal", facts)
+    assert writer_agent.validate_rationale("The office should close today; closure recommended.", "normal", facts)
+
+
+
+def test_writer_retries_once_after_a_length_rejection(monkeypatch):
+    from app.schemas import Recommendation as RecSchema
+    rec = RecSchema(id="r", facility_id="f", evaluated_at=utcnow(), operating_date=utcnow().date(), posture="normal",
+                    triggers=[], confidence="high", confidence_reasons=["ok"], what_would_change=[],
+                    rationale="Template text.", evidence_ids=[], policy_version="t")
+    calls = []
+
+    def fake_draft(rec, facts, state, timeout, feedback=None):
+        calls.append(feedback)
+        return ("word " * 150 + "normal operations.", "normal") if not feedback else (
+            "The rules engine recommends normal operations; a manager must approve.", "normal")
+    monkeypatch.setattr(writer_agent, "draft", fake_draft)
+    state = runtime.new_state(evaluation_id=f"retry-{uuid.uuid4().hex[:6]}", facility_id="f")
+    text, source, label = writer_agent.write_rationale(rec, [], facility_name="X", tz="America/Chicago",
+                                                       state=state, timeout=5)
+    assert source == "agent" and label == "AI draft" and len(calls) == 2
+    # the retry states the exact count and how much to cut
+    assert calls[1].startswith("it has 152 words; the hard limit is 140. Cut at least 42 words")
+
+    monkeypatch.setattr(writer_agent, "draft", lambda *a, **k: ("word " * 150 + "normal operations.", "normal"))
+    text, source, label = writer_agent.write_rationale(rec, [], facility_name="X", tz="America/Chicago",
+                                                       state=state, timeout=5)
+    assert source == "template" and label.startswith("AI draft rejected: too long") and text == "Template text."
+
+
+def test_writer_label_when_llm_unavailable(monkeypatch):
+    from app.schemas import Recommendation as RecSchema
+    rec = RecSchema(id="r", facility_id="f", evaluated_at=utcnow(), operating_date=utcnow().date(), posture="normal",
+                    triggers=[], confidence="high", confidence_reasons=[], what_would_change=[],
+                    rationale="Template text.", evidence_ids=[], policy_version="t")
+    use_model(monkeypatch, FailingModel())
+    _, source, label = writer_agent.write_rationale(rec, [], facility_name="X", tz="America/Chicago",
+                                                    state=runtime.new_state(evaluation_id="u1", facility_id="f"), timeout=5)
+    assert source == "template" and label == "LLM unavailable - template used"
+
+
+
+def test_writer_allows_threshold_references():
+    """Live draft from 2026-10-10: naming the posture a threshold belongs to is not recommending it."""
+    facts = {"what_would_change": ["Gusts reaching 46 mph would move this to delayed_arrival; 58 mph to closure."],
+             "x": [13, 11.5, 2026, 11, 12, 18, 24, 59]}
+    draft = ("The rules engine recommends normal operations for the USDA Kansas City Field Office on Tuesday, October 13, "
+             "2026. NWS data retrieved at 18:24 CDT shows no active alerts. The forecast indicates clear skies with peak "
+             "commute gusts of 11.5 mph, well below the 46 mph threshold for delayed arrival. Gusts of 58 mph would move "
+             "this to closure. A manager must approve before staff are notified.")
+    assert writer_agent.validate_rationale(draft, "normal", facts, "normal") is None
+    assert writer_agent.validate_rationale(draft + " Staff should plan a delayed arrival.", "normal", facts)
+
+
+
+def test_recommendation_is_returned_before_the_writer_and_then_updated(monkeypatch, canned_nws):
+    """The page shows the template at once ("AI draft pending"); a valid AI draft replaces it later."""
+    import threading
+    release = threading.Event()
+
+    def slow_draft(rec, facts, state, timeout, feedback=None):
+        release.wait(10)
+        return (f"The rules engine recommends normal operations for {facts['operating_date']}. "
+                "A manager must approve before staff are notified.", "normal")
+    monkeypatch.setattr(runtime, "llm_configured", lambda: True)
+    monkeypatch.setattr(writer_agent, "draft", slow_draft)
+    monkeypatch.setattr(weather_agent, "run", lambda *a, **k: (_ for _ in ()).throw(runtime.AgentUnavailable("off")))
+    with SessionLocal() as db:
+        rec = pipeline.evaluate_facility(db, db.get(Facility, FACILITY_ID))
+        assert rec.rationale_note == "AI draft pending" and rec.rationale == rec.template_rationale
+        template = rec.template_rationale
+        release.set()
+        writer_agent.wait(rec.id)
+        db.refresh(rec)
+    assert rec.rationale_source == "agent" and rec.rationale_note == "AI draft"
+    assert rec.rationale.startswith("The rules engine recommends normal operations") and rec.template_rationale == template
+    updated = [e for e in events("rationale.updated") if e.payload["recommendation_id"] == rec.id]
+    assert len(updated) == 1 and updated[0].payload["template"] == template and updated[0].payload["ai_draft"] == rec.rationale

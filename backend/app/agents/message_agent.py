@@ -112,6 +112,14 @@ def fill_messages(plan, *, allow_llm: bool, evaluation_id: str | None, facility_
     if wait_for_predraft:
         wait_predraft(wait_for_predraft, timeout=settings.agent_timeout)
     personal = [p for p in plan.planned if p.included and p.facts is not None]
+    ids = {"evaluation_id": evaluation_id, "facility_id": facility_id}
+    if not any(p.message_type in ("action_required", "fyi", "call_in") for p in personal):
+        # Nothing to word for anyone (e.g. normal operations, no exposure): no model call at all.
+        record.append_now("messages.skipped", {"agent": NAME, **ids, "posture": plan.ctx.posture,
+                                               "reason": "no action_required or fyi recipients"},
+                          facility_id=facility_id, evaluation_id=evaluation_id)
+        return {"groups": 0, "from_cache": 0, "drafted": 0, "agent_messages": 0, "template_messages": 0,
+                "rejected": [], "skipped": True}
     size: dict[str, int] = {}
     first: dict[str, object] = {}
     for p in personal:
@@ -123,7 +131,6 @@ def fill_messages(plan, *, allow_llm: bool, evaluation_id: str | None, facility_
     missing = sorted((k for k in size if k not in drafts), key=lambda k: -size[k])
     stats = {"groups": len(size), "from_cache": cached, "drafted": 0, "agent_messages": 0, "template_messages": 0,
              "rejected": []}
-    ids = {"evaluation_id": evaluation_id, "facility_id": facility_id}
     if missing and allow_llm and runtime.llm_configured():
         state = new_state(**ids, llm_budget_key=budget_key)
         try:

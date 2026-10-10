@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import type { Evidence, RecommendationDetail } from "../api";
 import DecisionClock from "./DecisionClock";
 import { PeopleStrip } from "./People";
+import LocalSignals, { AuthorityBadge, LocalEvidenceDetail, isLocal } from "./LocalSignals";
 import { Button, Card, ConfidenceBadge, PostureBadge, StatusBadge, fmtDateTime } from "./ui";
 
 /** The full recommendation: posture, clock, triggers, confidence, what would change, rationale, evidence. */
@@ -13,8 +14,13 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="text-sm uppercase tracking-wide text-slate-500">
-              Recommended posture for {rec.operating_date}
+              Recommended posture for {new Date(`${rec.operating_date}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
             </div>
+            {rec.target_note && (
+              <div className={`mt-1 text-sm ${rec.target_mode === "demo_workday" ? "rounded bg-yellow-200 px-2 py-0.5 font-semibold text-slate-900" : "text-slate-600"}`}>
+                {rec.target_note}
+              </div>
+            )}
             <div className="mt-2">
               <PostureBadge posture={rec.posture} size="xl" />
             </div>
@@ -22,6 +28,10 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
               <ConfidenceBadge confidence={rec.confidence} />
               <span>Evaluated {fmtDateTime(rec.evaluated_at, tz)}</span>
               <span className="font-mono text-xs">policy {rec.policy_version}</span>
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-4 text-sm text-slate-600">
+              {rec.lead_time_hours != null && <span>Forecast lead time: {Math.round(rec.lead_time_hours)} h to the commute window</span>}
+              <span>Next scheduled re-evaluation: {rec.next_reevaluation ? fmtDateTime(rec.next_reevaluation, tz) : "none scheduled"}</span>
             </div>
             {rec.decision && (
               <div className="mt-3 rounded bg-slate-100 px-3 py-2 text-sm">
@@ -72,7 +82,7 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
                     </td>
                     <td className="py-2 pr-3 font-semibold">{t.observed}{t.units ? ` ${t.units}` : ""}</td>
                     <td className="py-2 pr-3">{t.threshold}{t.units ? ` ${t.units}` : ""}</td>
-                    <td className="py-2 pr-3 tabular-nums">{t.margin != null ? `${t.margin > 0 ? "+" : ""}${t.margin} ${t.units ?? ""}` : "—"}</td>
+                    <td className="py-2 pr-3 tabular-nums">{t.margin == null ? "—" : typeof t.margin === "string" ? t.margin : `${t.margin > 0 ? "+" : ""}${t.margin} ${t.units ?? ""}`}</td>
                     <td className="py-2 pr-3"><PostureBadge posture={t.posture} size="sm" /></td>
                     <td className={`py-2 text-xs ${t.citation.startsWith("TODO") ? "text-amber-700" : "text-slate-600"}`}>{t.citation}</td>
                   </tr>
@@ -101,21 +111,22 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
         title={
           <span className="flex flex-wrap items-center gap-2">
             Rationale
-            {rec.rationale_source === "agent" ? (
-              <span className="rounded bg-indigo-100 px-2 py-0.5 text-xs font-semibold normal-case tracking-normal text-indigo-800">
-                Writer agent · validated
-              </span>
-            ) : (
-              <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold normal-case tracking-normal text-amber-900">
-                LLM offline — template rationale
-              </span>
-            )}
+            <span className={`rounded px-2 py-0.5 text-xs font-semibold normal-case tracking-normal ${
+              rec.rationale_note === "AI draft pending" ? "bg-sky-100 text-sky-900"
+                : rec.rationale_source === "agent" ? "bg-indigo-100 text-indigo-800" : "bg-amber-100 text-amber-900"}`}>
+              {rec.rationale_note === "AI draft pending" && (
+                <span className="mr-1 inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-sky-300 border-t-sky-700 align-middle" />
+              )}
+              {rec.rationale_note ?? (rec.rationale_source === "agent" ? "AI draft" : "Template")}
+            </span>
           </span>
         }
         actions={<CopyButton text={rec.rationale} />}
       >
         <p className="leading-relaxed">{rec.rationale}</p>
       </Card>
+
+      <LocalSignals evidence={rec.evidence} tz={tz} />
 
       <EvidenceList evidence={rec.evidence} tz={tz} />
     </div>
@@ -159,9 +170,13 @@ export function EvidenceList({ evidence, tz }: { evidence: Evidence[]; tz: strin
             {evidence.map((e) => (
               <tr key={e.id} className={`border-t border-slate-100 align-top ${e.status === "unknown" ? "bg-red-50" : e.status === "stale" ? "bg-amber-50" : ""}`}>
                 <td className="py-2 pr-3"><StatusBadge status={e.status} /></td>
-                <td className="py-2 pr-3 font-mono uppercase">{e.source}</td>
+                <td className="py-2 pr-3 font-mono uppercase">
+                  {e.source}
+                  {isLocal(e) && <div className="mt-1"><AuthorityBadge authority={(e.value as { authority: string }).authority} /></div>}
+                </td>
                 <td className="py-2 pr-3">
                   <div className="font-semibold">{e.kind.replace(/_/g, " ")}</div>
+                  <LocalEvidenceDetail e={e} />
                   <div className="text-xs text-slate-500">{e.relevance_note}</div>
                   {e.ambiguity_flags?.map((f) => (
                     <div key={f} className="text-xs font-semibold text-amber-800">⚠ {f}</div>

@@ -58,6 +58,32 @@ def init_db() -> None:
     from . import models  # noqa: F401  (registers tables)
 
     Base.metadata.create_all(engine)
+    add_missing_columns()
+
+
+def add_missing_columns(eng=None) -> list[str]:
+    """Additive migration: ALTER TABLE ADD COLUMN for new *nullable* model columns, so existing
+    databases (production SQLite/Postgres) keep working after a model gains a field. Anything else
+    (renames, type changes, non-null columns) still needs a manual migration."""
+    from sqlalchemy import inspect
+
+    added = []
+    eng = eng or engine
+    insp = inspect(eng)
+    with eng.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not insp.has_table(table.name):
+                continue
+            have = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in have:
+                    continue
+                if not col.nullable:
+                    raise RuntimeError(f"{table.name}.{col.name} is new and NOT NULL: needs a manual migration")
+                ddl = col.type.compile(dialect=eng.dialect)
+                conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}'))
+                added.append(f"{table.name}.{col.name}")
+    return added
 
 
 def check_database() -> bool:
