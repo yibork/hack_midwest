@@ -64,6 +64,7 @@ class PostureContext:
     delay_hours: int | None = None  # None: instructions.yaml default
     dismissal_time: str | None = None  # None: close - default hours
     critical_codes: frozenset[str] = frozenset()
+    workday: bool = True  # an operating day for the facility (or a demo workday)
 
     @property
     def tz(self) -> ZoneInfo:
@@ -129,9 +130,16 @@ class ZoneAlert:
 
 @dataclass(frozen=True)
 class Exposure:
-    """Active NWS alerts by home zone/county, and closed routes (MoDOT evidence, when present)."""
+    """Active NWS alerts by home zone/county, and road closures: per employee (official closures
+    inside their commute corridor, app/geo.py) or by route name (DEMO simulations only)."""
     alerts: tuple[ZoneAlert, ...] = ()
-    closed_routes: frozenset[str] = frozenset()
+    closed_routes: frozenset[str] = frozenset()  # simulated (DEMO_MODE) closures by route name
+    closed_for: tuple[tuple[str, tuple[str, ...]], ...] = ()  # (employee_id, routes)
+
+    def closures_for(self, person: Employee) -> list[str]:
+        mine = {r for eid, routes in self.closed_for if eid == person.id for r in routes}
+        mine |= normalize_routes(person.commute_routes) & normalize_routes(self.closed_routes)
+        return sorted(mine)
 
 
 @dataclass(frozen=True)
@@ -249,7 +257,7 @@ def _alert_hits(person: Employee, exposure: Exposure, start: datetime, end: date
 
 
 def _commute_risk(person: Employee, exposure: Exposure, start: datetime, end: datetime) -> bool:
-    return bool(_alert_hits(person, exposure, start, end) or normalize_routes(person.commute_routes) & normalize_routes(exposure.closed_routes))
+    return bool(_alert_hits(person, exposure, start, end) or exposure.closures_for(person))
 
 
 def compute_impact(ctx: PostureContext, person: Employee, assignments: list[Assignment],
@@ -399,7 +407,7 @@ def compute_impact(ctx: PostureContext, person: Employee, assignments: list[Assi
         imp.commute_risk = _commute_risk(person, exposure, c_start, c_end)
     if shift and commuting:
         hits = _alert_hits(person, exposure, c_start, c_end)
-        routes = sorted(normalize_routes(person.commute_routes) & normalize_routes(exposure.closed_routes))
+        routes = exposure.closures_for(person)
         if hits:
             imp.exposure_detail.append(", ".join(sorted({f"{h.event} ({h.zone})" for h in hits})))
             imp.add("HOME_IN_WARNING_AREA", f"home area under {imp.exposure_detail[-1]} during the commute "

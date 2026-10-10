@@ -14,8 +14,17 @@ export interface Facility {
   timezone: string;
   open_time: string;
   close_time: string;
-  access_routes: string[];
+  access_routes: AccessSegment[];
+  operating_days: number[] | null;
   temporary: boolean;
+}
+
+export interface AccessSegment {
+  route: string;
+  name: string;
+  points: [number, number][];
+  buffer_km: number;
+  ramps: boolean;
 }
 
 export interface Evidence {
@@ -75,6 +84,8 @@ export interface Recommendation {
   rationale_source: "agent" | "template";
   evidence_ids: string[];
   policy_version: string;
+  target_mode: "next_operating_day" | "explicit" | "demo_workday" | null;
+  target_note: string | null;
 }
 
 export interface DecisionClock {
@@ -122,6 +133,12 @@ export interface RecommendationDetail extends Recommendation {
   decision: Decision | null;
   decide_by: string | null;
   people: PeopleSummary | null;
+}
+
+/** Default: the next operating day. target_date: an explicit day. demo_workday: DEMO_MODE only. */
+export interface EvaluateTarget {
+  target_date?: string;
+  demo_workday?: boolean;
 }
 
 export interface DecisionIn {
@@ -287,6 +304,10 @@ export interface LocalFactValue {
   matches_employee_commute_routes: string[];
   supporting_quote: string;
   confidence: "high" | "medium" | "low";
+  relevance: "facility" | "commute" | "not_relevant" | "uncertain";
+  distance_km: number | null;
+  segments: string[];
+  affected_employee_ids: string[];
   agent: "roads" | "schools" | "public_safety" | "news";
   source_id: string;
   source_name: string;
@@ -422,13 +443,13 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
 }
 
 export const api = {
-  health: () => request<{ status: string }>("/health"),
+  health: () => request<{ status: string; demo_mode: boolean }>("/health"),
   facilities: () => request<Facility[]>("/facilities"),
   facility: (id: string) => request<Facility>(`/facilities/${id}`),
   latestRecommendation: (facilityId: string) =>
     request<RecommendationDetail | null>(`/facilities/${facilityId}/latest-recommendation`),
-  evaluate: (facilityId: string, evaluationId?: string) =>
-    post<RecommendationDetail>(`/facilities/${facilityId}/evaluate`, { evaluation_id: evaluationId }),
+  evaluate: (facilityId: string, evaluationId?: string, target: EvaluateTarget = {}) =>
+    post<RecommendationDetail>(`/facilities/${facilityId}/evaluate`, { evaluation_id: evaluationId, ...target }),
   evaluatePoint: (lat: number, lon: number, name: string, evaluationId?: string) =>
     post<RecommendationDetail>("/evaluate-point", { lat, lon, name, evaluation_id: evaluationId }),
   agentActivity: (p: { evaluation_id?: string; since?: string; facility_id?: string }) =>

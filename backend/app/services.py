@@ -9,9 +9,20 @@ from .db import SessionLocal, utcnow
 
 def store_evidence(db: Session, evidence: list[schemas.Evidence], facility_id: str | None,
                    evaluation_id: str | None = None) -> None:
+    """Store Evidence rows. Within an evaluation, a response already stored (same kind and snapshot
+    hash, e.g. a tool the agent ran before it timed out and the fallback runs again) is reused:
+    ev.id is set to the existing row and nothing is duplicated."""
     for ev in evidence:
         ev.facility_id = facility_id
         ev.evaluation_id = evaluation_id
+        if evaluation_id and ev.snapshot_hash:
+            db.flush()
+            same = db.scalar(select(models.Evidence).where(
+                models.Evidence.evaluation_id == evaluation_id, models.Evidence.kind == ev.kind,
+                models.Evidence.snapshot_hash == ev.snapshot_hash).limit(1))
+            if same is not None:
+                ev.id = same.id
+                continue
         db.add(models.Evidence(**ev.model_dump()))
         record.append(db, "evidence.fetched", {
             "evidence_id": ev.id, "source": ev.source, "kind": ev.kind, "status": ev.status,

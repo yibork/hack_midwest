@@ -5,7 +5,7 @@ do the real work in code: fetch, snapshot, store Evidence (with evaluation_id). 
 reads numbers only from those Evidence rows, never from the model's text.
 """
 import json
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -74,11 +74,12 @@ def fetch_alerts(facility: schemas.Facility, evaluation_id: str) -> dict:
     }
 
 
-def fetch_forecast(facility: schemas.Facility, evaluation_id: str, now: datetime | None = None) -> dict:
+def fetch_forecast(facility: schemas.Facility, evaluation_id: str, now: datetime | None = None,
+                   operating_date: date | None = None) -> dict:
     now = now or utcnow()
     evidence, point = nws.collect_forecast_evidence(facility.lat, facility.lon, now)
     store_evidence_now(evidence, facility.id, evaluation_id)
-    w = compute_windows(facility, now, load_policy())
+    w = compute_windows(facility, now, load_policy(), operating_date)
     by_kind = {e.kind: e for e in evidence}
     wind, hourly = by_kind.get("wind_forecast"), by_kind.get("hourly_forecast")
     conditions = []
@@ -110,14 +111,15 @@ def evidence_for(evaluation_id: str) -> list[schemas.Evidence]:
         return [schemas.Evidence.model_validate(r) for r in rows]
 
 
-def ensure_required_evidence(facility: schemas.Facility, evaluation_id: str, agent_ran: bool) -> None:
+def ensure_required_evidence(facility: schemas.Facility, evaluation_id: str, agent_ran: bool,
+                             operating_date: date | None = None) -> None:
     """The engine must always get alerts and wind data. Fetch in code whatever is missing."""
     have = {e.kind for e in evidence_for(evaluation_id)}
     missing = [k for k in REQUIRED_KINDS if k not in have]
     if "active_alerts" in missing:
         fetch_alerts(facility, evaluation_id)
     if "wind_forecast" in missing:
-        fetch_forecast(facility, evaluation_id)
+        fetch_forecast(facility, evaluation_id, operating_date=operating_date)
     if missing and agent_ran:
         record.append_now("agent.tool_backfill", {"agent": NAME, "missing": missing,
                                                   "evaluation_id": evaluation_id},
@@ -142,7 +144,8 @@ def fetch_commute_window_forecast(tool_context: ToolContext) -> str:
     (mph) and the hourly conditions during the commute window."""
     state = tool_context.invocation_state
     _check_open(state)
-    return json.dumps(fetch_forecast(_load_facility(state["facility_id"]), state["evaluation_id"]))
+    return json.dumps(fetch_forecast(_load_facility(state["facility_id"]), state["evaluation_id"],
+                                     operating_date=state.get("operating_date")))
 
 
 # ---------------------------------------------------------------- run

@@ -14,8 +14,13 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="text-sm uppercase tracking-wide text-slate-500">
-              Recommended posture for {rec.operating_date}
+              Recommended posture for {new Date(`${rec.operating_date}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
             </div>
+            {rec.target_note && (
+              <div className={`mt-1 text-sm ${rec.target_mode === "demo_workday" ? "rounded bg-yellow-200 px-2 py-0.5 font-semibold text-slate-900" : "text-slate-600"}`}>
+                {rec.target_note}
+              </div>
+            )}
             <div className="mt-2">
               <PostureBadge posture={rec.posture} size="xl" />
             </div>

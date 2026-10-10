@@ -43,12 +43,6 @@ def _in_window(v: dict, start: datetime, end: datetime) -> bool:
     return (a is None or a < end) and (b is None or b > start)
 
 
-def _near(v: dict, radius: float) -> bool:
-    """Unknown distance (sources without coordinates are metro-only) counts as near."""
-    d = v.get("distance_miles")
-    return d is None or d <= radius
-
-
 def _link(v: dict) -> str:
     return f"\"{v.get('title', '')[:90]}\" ({v.get('source_name')}: {v.get('link')})"
 
@@ -67,11 +61,13 @@ def apply(facility: Facility, evidence: list[Evidence], commute: tuple[datetime,
             (out.lowers if v.get("authority") == "official_state" else out.notes).append(msg)
 
     # 1. access_route_closed
-    access = normalize_routes(facility.access_routes)
+    # Matches come from coordinates (app/geo.py): on an access segment's buffer, on its route.
+    access = normalize_routes(facility.route_names)
     closing = [e for e in facts if e.value.get("authority") == "official_state"
                and e.value.get("fact_type") == "road_closure" and e.value.get("matches_facility_access_route")
+               and e.value.get("relevance") == "facility"
                and e.value.get("confidence") in policy.get("closure_confidence", ["high", "medium"])
-               and _near(e.value, policy.get("access_route_radius_miles", 15)) and _in_window(e.value, *commute)]
+               and _in_window(e.value, *commute)]
     closed = sorted(set().union(*[set(e.value.get("routes_mentioned", [])) for e in closing]) & access) if closing else []
     if closed:
         n, m = len(closed), len(access)
@@ -87,13 +83,17 @@ def apply(facility: Facility, evidence: list[Evidence], commute: tuple[datetime,
         out.changes.append(f"Reopening of {', '.join(closed)} (per {', '.join(sources)}) would remove the "
                            f"access_route_closed trigger.")
 
-    commute_closed = sorted({r for e in facts if e.value.get("authority") == "official_state"
-                             and e.value.get("fact_type") == "road_closure"
-                             and _near(e.value, policy.get("commute_radius_miles", 40))
-                             for r in e.value.get("matches_employee_commute_routes", [])})
-    if commute_closed:
-        out.notes.append(f"Official road closures on employee commute routes ({', '.join(commute_closed)}) are "
-                         f"applied per person (ROUTE_CLOSED); they don't change the facility posture.")
+    commute = [e for e in facts if e.value.get("authority") == "official_state"
+               and e.value.get("fact_type") == "road_closure" and e.value.get("affected_employee_ids")]
+    if commute:
+        routes = sorted({r for e in commute for r in e.value.get("matches_employee_commute_routes", [])})
+        people = len({i for e in commute for i in e.value["affected_employee_ids"]})
+        out.notes.append(f"Official road closures inside {people} employee commute corridor(s) ({', '.join(routes)}) "
+                         f"are applied per person (ROUTE_CLOSED); they don't change the facility posture.")
+    uncertain = [e for e in facts if e.value.get("fact_type") == "road_closure" and e.value.get("relevance") == "uncertain"]
+    if uncertain:
+        out.notes.append(f"{len(uncertain)} road closure(s) without coordinates: location uncertain, shown for the "
+                         f"manager but not used by any rule.")
 
     # 2. Schools: corroboration only.
     schools = [e for e in facts if e.value.get("fact_type") in SCHOOL_TYPES]

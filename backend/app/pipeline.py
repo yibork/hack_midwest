@@ -9,10 +9,12 @@ are called directly in code, the template rationale is used, and "agent_unavaila
 """
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
-from . import models, record, schemas
+from . import calendar, models, record, schemas
 from .agents import message_agent, weather_agent, writer_agent
 from .agents.local import run as local_run
 from .agents.runtime import AgentUnavailable, new_state, record_unavailable
@@ -25,15 +27,40 @@ from .services import store_evidence_now
 from .sources import local_signals, nws
 
 
-def evaluate_facility(db: Session, facility: models.Facility,
-                      evaluation_id: str | None = None) -> models.Recommendation:
+def choose_target(fac: schemas.Facility, now: datetime, target_date: date | None = None,
+                  demo_workday: bool = False) -> tuple[date, str, str]:
+    """-> (operating date, mode, why). Default: the next operating day (facility days + federal
+    holidays), starting today until close time, then tomorrow."""
+    tz = ZoneInfo(fac.timezone)
+    local = now.astimezone(tz)
+    if demo_workday:
+        if not settings.demo_mode:
+            raise ValueError("demo_workday requires DEMO_MODE=1")
+        why = calendar.why_not(local.date(), fac.operating_days)
+        return local.date(), "demo_workday", (f"DEMO: today ({calendar.label(local.date())}) evaluated as a workday"
+                                              + (f"; really, {why[0].lower() + why[1:]}." if why else "."))
+    if target_date is not None:
+        why = calendar.why_not(target_date, fac.operating_days)
+        return target_date, "explicit", (f"{why}: only people scheduled that day (weekend crew, emergency staff) are "
+                                         f"affected." if why else f"Picked by the manager: {calendar.label(target_date)}.")
+    start = local.date()
+    if local.time() >= datetime.strptime(fac.close_time, "%H:%M").time():
+        start += timedelta(days=1)
+    day, why = calendar.next_operating_day(start, fac.operating_days)
+    return day, "next_operating_day", why
+
+
+def evaluate_facility(db: Session, facility: models.Facility, evaluation_id: str | None = None,
+                      target_date: date | None = None, demo_workday: bool = False) -> models.Recommendation:
     eid = evaluation_id or uuid.uuid4().hex
     fac = schemas.Facility.model_validate(facility)
-    record.append_now("evaluation.started", {"evaluation_id": eid, "facility": fac.name},
+    day, mode, why = choose_target(fac, utcnow(), target_date, demo_workday)
+    record.append_now("evaluation.started", {"evaluation_id": eid, "facility": fac.name,
+                                             "operating_date": day.isoformat(), "target_mode": mode, "why": why},
                       facility_id=fac.id, evaluation_id=eid)
 
     # People context (no network): who works here, their home counties and commute routes.
-    people = load_inputs(db, facility, utcnow().date())[0] if not fac.temporary else []
+    people = load_inputs(db, facility, day)[0] if not fac.temporary else []
 
     # 1c (started first). Local signals run in parallel with the weather agent: coordinator +
     #     roads/schools/public-safety/news agents over allowlisted sources. They store validated
@@ -45,7 +72,7 @@ def evaluate_facility(db: Session, facility: models.Facility,
         local_pool.shutdown(wait=False)
 
     # 1. Evidence: the weather agent calls the NWS tools and annotates what they stored.
-    state = new_state(evaluation_id=eid, facility_id=fac.id)
+    state = new_state(evaluation_id=eid, facility_id=fac.id, operating_date=day)
     agent_ran = False
     try:
         notes = weather_agent.run(fac, state, settings.agent_timeout)
@@ -53,7 +80,7 @@ def evaluate_facility(db: Session, facility: models.Facility,
         weather_agent.apply_notes(notes, fac.id, eid)
     except AgentUnavailable as e:
         record_unavailable(weather_agent.NAME, str(e), "NWS tools called directly", state)
-    weather_agent.ensure_required_evidence(fac, eid, agent_ran)
+    weather_agent.ensure_required_evidence(fac, eid, agent_ran, operating_date=day)
 
     # 1b. People exposure: alerts for employees' home zones, one request per unique zone.
     if people:
@@ -68,7 +95,7 @@ def evaluate_facility(db: Session, facility: models.Facility,
 
     # 2. Recommendation: deterministic rules engine over the stored Evidence rows.
     now = utcnow()
-    rec = evaluate(fac, evidence, now)
+    rec = evaluate(fac, evidence, now, operating_date=day, target_note=why, target_mode=mode)
     rec.evaluation_id = eid
 
     # 3. Explanation: writer agent, validated; template on any problem.
@@ -83,6 +110,7 @@ def evaluate_facility(db: Session, facility: models.Facility,
         "recommendation_id": rec.id, "evaluation_id": eid, "posture": rec.posture,
         "confidence": rec.confidence, "operating_date": rec.operating_date,
         "policy_version": rec.policy_version, "triggers": [t.rule_id for t in rec.triggers],
+        "target_mode": rec.target_mode, "target_note": rec.target_note,
         "evidence_ids": rec.evidence_ids, "rationale_source": rec.rationale_source,
     }, facility_id=fac.id, evaluation_id=eid)
     db.commit()
@@ -106,8 +134,7 @@ def _local_signals(fac: schemas.Facility, eid: str, people: list[schemas.Employe
         relevance_note="Facility county and employee home counties (for local-signal corroboration).")],
         fac.id, eid)
     alerts, _ = nws.get_active_alerts_for_point(fac.lat, fac.lon)  # cached; the weather agent reads the same
-    commute = sorted({r for p in people for r in p.commute_routes})
-    local_run.run(fac, eid, alerts or [], commute, county)
+    local_run.run(fac, eid, alerts or [], people, county)
 
 
 def evaluate_point(db: Session, lat: float, lon: float, name: str,

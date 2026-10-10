@@ -224,7 +224,7 @@ def test_rejected_draft_falls_back_to_template(monkeypatch, canned_nws):
         rec = pipeline.evaluate_facility(db, db.get(Facility, FACILITY_ID))  # calm -> normal
     from app.schemas import Recommendation as RecSchema
     rec_s = RecSchema.model_validate(rec)
-    monkeypatch.setattr(writer_agent, "draft", lambda *a, **k: "The office should switch to telework today.")
+    monkeypatch.setattr(writer_agent, "draft", lambda *a, **k: ("The office should switch to telework today.", "normal"))
     before = len(events("writer_rejected"))
     text, source = writer_agent.write_rationale(
         rec_s, [], facility_name="X", tz="America/Chicago",
@@ -312,3 +312,21 @@ def test_message_agent_drafts_all_groups_in_one_call(monkeypatch, canned_nws):
     assert "office closed, telework" in agent_msg.message and agent_msg.employee.name.split()[0] in agent_msg.message
     assert any("06:45" in r["reason"] for r in stats["rejected"])
     assert len(calls) - calls_before == 1  # ONE model call for the whole notice
+
+
+
+def test_writer_allows_conditional_and_negated_postures():
+    facts = {"what_would_change": ["Gusts reaching 58 mph during the commute window would move this to closure."],
+             "operating_date": "Tuesday, October 13, 2026"}
+    ok = ("The rules engine recommends normal operations for Tuesday, October 13. No closure is warranted. "
+          "Gusts of 58 mph would move this to closure. A manager must approve before staff are notified.")
+    assert writer_agent.validate_rationale(ok, "normal", facts, "normal") is None
+    assert writer_agent.validate_rationale("No closure is warranted; normal operations.", "normal", facts) is None
+
+
+def test_writer_rejects_stated_posture_mismatch_and_numbers():
+    facts = {"what_would_change": ["Gusts reaching 58 mph would move this to closure."]}
+    text = "The rules engine recommends normal operations."
+    assert "stated_posture" in writer_agent.validate_rationale(text, "normal", facts, "closure")
+    assert "61" in writer_agent.validate_rationale(text + " Gusts of 61 mph would move this to closure.", "normal", facts)
+    assert writer_agent.validate_rationale("The office should close today; closure recommended.", "normal", facts)

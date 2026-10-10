@@ -16,6 +16,20 @@ class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AccessSegment(BaseModel):
+    """The stretch of a route employees actually use near the facility."""
+    route: str  # "I-35"
+    name: str = ""  # "I-35 downtown loop"
+    points: list[tuple[float, float]] = []  # (lat, lon) polyline
+    buffer_km: float = 2.0
+    ramps: bool = False  # ramp closures inside this stretch count as closures of the access route
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_name(cls, v):
+        return {"route": v} if isinstance(v, str) else v
+
+
 class Facility(ORMModel):
     id: str
     name: str
@@ -25,8 +39,13 @@ class Facility(ORMModel):
     timezone: str = "America/Chicago"
     open_time: str  # "HH:MM" local
     close_time: str
-    access_routes: list[str] = []
+    access_routes: list[AccessSegment] = []
+    operating_days: list[int] | None = None  # 0=Mon..6=Sun; None = Mon-Fri
     temporary: bool = False
+
+    @property
+    def route_names(self) -> list[str]:
+        return [s.route for s in self.access_routes]
 
 
 Role = Literal["employee", "supervisor", "facility_manager", "facility_ops", "security_desk", "contractor"]
@@ -89,6 +108,7 @@ class CriticalFunction(ORMModel):
     code: str
     name: str
     min_onsite: dict[str, int] = {}
+    operating_days: list[int] | None = None  # None = the facility's days; animal care runs 7 days
     notes: str = ""
 
 
@@ -137,6 +157,9 @@ class Recommendation(ORMModel):
     rationale_source: Literal["agent", "template"] = "template"
     evidence_ids: list[str]
     policy_version: str
+    # How the operating date was chosen: next_operating_day | explicit | demo_workday
+    target_mode: str | None = "next_operating_day"
+    target_note: str | None = None  # "Mon Oct 12 is a federal holiday (Columbus Day); next workday Tue Oct 13."
 
 
 HHMM = Annotated[str, StringConstraints(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")]
@@ -409,6 +432,8 @@ EvaluationId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9-]{8,64}$")
 
 class EvaluateIn(BaseModel):
     evaluation_id: EvaluationId | None = None
+    target_date: dt.date | None = None  # default: the next operating day
+    demo_workday: bool = False  # DEMO_MODE only: evaluate today as if it were a workday
 
 
 class EvaluatePointIn(EvaluateIn):

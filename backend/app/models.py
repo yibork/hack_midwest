@@ -18,7 +18,9 @@ class Facility(Base):
     timezone: Mapped[str] = mapped_column(String(64), default="America/Chicago")
     open_time: Mapped[str] = mapped_column(String(5))  # "HH:MM" local
     close_time: Mapped[str] = mapped_column(String(5))
-    access_routes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Access segments: [{route, name, points: [[lat, lon], ...], buffer_km, ramps}] (plain names accepted)
+    access_routes: Mapped[list] = mapped_column(JSON, default=list)
+    operating_days: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)  # None = Mon-Fri
     # Created by /api/evaluate-point (national scan); hidden from the facility list.
     temporary: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -81,6 +83,7 @@ class CriticalFunction(Base):
     code: Mapped[str] = mapped_column(String(40))  # animal_care | lab_freezer_monitoring | security | it_ops
     name: Mapped[str] = mapped_column(String(100))
     min_onsite: Mapped[dict[str, int]] = mapped_column(JSON, default=dict)  # posture -> people
+    operating_days: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)  # None = facility days
     notes: Mapped[str] = mapped_column(Text, default="")
 
 
@@ -120,6 +123,8 @@ class Recommendation(Base):
     rationale_source: Mapped[str] = mapped_column(String(10), default="template")  # agent | template
     evidence_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     policy_version: Mapped[str] = mapped_column(String(64))
+    target_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    target_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Decision(Base):

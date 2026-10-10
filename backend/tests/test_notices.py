@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app import models, schemas
+from app import calendar, models, schemas
 from app.db import SessionLocal, utcnow
 from app.main import app
 from app.notify import escalation, notices
@@ -38,8 +38,17 @@ def quiet_channels(monkeypatch):
     return sent
 
 
+def workday(n: int = 0):
+    """The n-th operating day from today (weekends and federal holidays skipped; shifts are seeded
+    for the next 8 days)."""
+    day, _ = calendar.next_operating_day(datetime.now(TZ).date())
+    for _ in range(n):
+        day, _ = calendar.next_operating_day(day + timedelta(days=1))
+    return day
+
+
 def _rec(posture: str, day_offset: int = 0) -> models.Recommendation:
-    day = datetime.now(TZ).date() + timedelta(days=day_offset)
+    day = workday(day_offset)
     with SessionLocal() as db:
         rec = models.Recommendation(
             id=uuid.uuid4().hex, facility_id=FACILITY_ID, evaluation_id=None, evaluated_at=utcnow(),

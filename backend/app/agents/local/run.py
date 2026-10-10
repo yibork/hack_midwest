@@ -4,7 +4,6 @@ Stores one Evidence row per source fetch (kind "local_feed"; status "unknown" wh
 robots.txt disallowed it) and one per validated fact (kind "local_fact"). rules/local.py reads
 those rows; nothing here decides a posture.
 """
-import math
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -12,6 +11,8 @@ from datetime import datetime, timedelta
 from ... import record, schemas
 from ...config import settings
 from ...db import utcnow
+from ...geo import Corridor, GeoContext, Segment
+from ...routes import normalize_routes
 from ...services import store_evidence_now
 from ...sources import local_signals as ls
 from ..runtime import new_state
@@ -19,33 +20,38 @@ from . import coordinator, specialists
 from .prefilter import prefilter
 
 
-def miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    r = 3958.8
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
-    return round(2 * r * math.asin(math.sqrt(a)), 1)
+def geo_context(facility: schemas.Facility, people: list[schemas.Employee]) -> GeoContext:
+    fpt = (facility.lat, facility.lon)
+    segments = tuple(Segment(route=seg.route, points=tuple(tuple(p) for p in seg.points), buffer_km=seg.buffer_km,
+                             ramps=seg.ramps, name=seg.name) for seg in facility.access_routes if seg.points)
+    corridors = tuple(Corridor(employee_id=p.id, routes=frozenset(normalize_routes(p.commute_routes)),
+                               home=(p.home_lat, p.home_lon), facility=fpt)
+                      for p in people if p.home_lat and p.home_lon and p.commute_routes)
+    return GeoContext(facility=fpt, segments=segments, corridors=corridors)
 
 
-def fact_evidence(fact: dict, item: dict, src: ls.Source, agent: str, how: str, now: datetime,
-                  facility: schemas.Facility) -> schemas.Evidence:
-    dist = miles(facility.lat, facility.lon, item["lat"], item["lon"]) if "lat" in item and "lon" in item else None
+def fact_evidence(fact: dict, item: dict, src: ls.Source, agent: str, how: str, now: datetime) -> schemas.Evidence:
     reported = datetime.fromisoformat(item["published_at"]) if item.get("published_at") else None
     routes = ", ".join(fact["routes_mentioned"])
+    where = (f"{fact['distance_km']:g} km from facility" if fact.get("distance_km") is not None
+             else "location uncertain (no coordinates)")
     return schemas.Evidence(
         id=uuid.uuid4().hex, source="local", kind="local_fact",
         value={**fact, "agent": agent, "source_id": src.id, "source_name": src.name, "authority": src.authority,
                "title": item["title"], "link": item["link"], "reported_at": item.get("published_at"),
-               "undated": bool(item.get("undated")), "extracted_by": how, "distance_miles": dist},
+               "undated": bool(item.get("undated")), "extracted_by": how, "points": item.get("points") or []},
         source_time=reported, retrieved_at=now, valid_until=now + timedelta(minutes=src.refresh_minutes),
         url=item["link"], relevance_note=f"{agent}: {fact['fact_type'].replace('_', ' ')}"
-                                         f"{' on ' + routes if routes else ''} ({src.name})",
+                                         f"{' on ' + routes if routes else ''}; {fact['relevance']}, {where} ({src.name})",
         status="ok")
 
 
-def run(facility: schemas.Facility, evaluation_id: str, alerts: list[dict], commute_routes: list[str],
+def run(facility: schemas.Facility, evaluation_id: str, alerts: list[dict], people: list[schemas.Employee],
         facility_county: str | None = None) -> list[schemas.Evidence]:
     now = utcnow()
-    fac = {"name": facility.name, "access_routes": facility.access_routes, "county": facility_county}
+    commute_routes = sorted({r for p in people for r in p.commute_routes})
+    geo = geo_context(facility, people)
+    fac = {"name": facility.name, "access_routes": facility.route_names, "county": facility_county}
     ids = {"evaluation_id": evaluation_id, "facility_id": facility.id}
     plan = coordinator.choose(alerts, fac, new_state(**ids), settings.agent_timeout)
 
@@ -64,7 +70,7 @@ def run(facility: schemas.Facility, evaluation_id: str, alerts: list[dict], comm
     work = {}
     for agent in plan["agents"]:
         items = by_agent.get(agent, [])
-        relevant = prefilter(items, facility.access_routes, commute_routes)
+        relevant = prefilter(items, facility.route_names, commute_routes)
         record.append_now("local.prefilter", {"agent": f"local_{agent}_agent", **ids, "items": len(items),
                                               "relevant": len(relevant)},
                           facility_id=facility.id, evaluation_id=evaluation_id)
@@ -74,13 +80,13 @@ def run(facility: schemas.Facility, evaluation_id: str, alerts: list[dict], comm
     def one(agent: str):
         return agent, specialists.run_or_fallback(agent, work[agent], fac, commute_routes, new_state(**ids),
                                                   settings.local_agent_timeout,
-                                                  use_model=agent in plan["model_agents"])
+                                                  use_model=agent in plan["model_agents"], geo=geo)
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         outputs = list(pool.map(one, list(work)))
     for agent, (facts, how) in outputs:
         items = {it["item_id"]: it for it in work[agent]}
         for f in facts:
-            evidence.append(fact_evidence(f, items[f["item_id"]], src_of[f["item_id"]], agent, how, now, facility))
+            evidence.append(fact_evidence(f, items[f["item_id"]], src_of[f["item_id"]], agent, how, now))
     store_evidence_now(evidence, facility.id, evaluation_id)
     return evidence

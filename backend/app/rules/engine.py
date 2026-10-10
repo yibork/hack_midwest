@@ -73,12 +73,15 @@ def _hhmm(s: str) -> time:
     return time(int(h), int(m))
 
 
-def compute_windows(facility: Facility, now: datetime, policy: Policy) -> Windows:
-    """The operating date is today until today's close time, then tomorrow."""
+def compute_windows(facility: Facility, now: datetime, policy: Policy, operating_date: date | None = None) -> Windows:
+    """The operating date is the given one; by default today until today's close time, then
+    tomorrow (the pipeline passes the next operating day, see app/calendar.py)."""
     tz = ZoneInfo(facility.timezone)
     local_now = now.astimezone(tz)
     day = local_now.date()
-    if local_now >= datetime.combine(day, _hhmm(facility.close_time), tz):
+    if operating_date is not None:
+        day = operating_date
+    elif local_now >= datetime.combine(day, _hhmm(facility.close_time), tz):
         day += timedelta(days=1)
     open_dt = datetime.combine(day, _hhmm(facility.open_time), tz)
     close_dt = datetime.combine(day, _hhmm(facility.close_time), tz)
@@ -183,9 +186,10 @@ def _check_gust(rule: dict, clause: dict, peak: float | None, wind_ev: Evidence 
 # ---------------------------------------------------------------- evaluate
 
 def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
-             policy: Policy | None = None) -> Recommendation:
+             policy: Policy | None = None, operating_date: date | None = None,
+             target_note: str | None = None, target_mode: str = "next_operating_day") -> Recommendation:
     policy = policy or load_policy()
-    w = compute_windows(facility, now, policy)
+    w = compute_windows(facility, now, policy, operating_date)
     by_kind = _latest_by_kind(evidence_list)
 
     alerts_ev = by_kind.get("active_alerts")
@@ -309,7 +313,7 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
         id=uuid.uuid4().hex, facility_id=facility.id, evaluated_at=now, operating_date=w.operating_date,
         posture=posture, triggers=triggers, confidence=confidence, confidence_reasons=reasons,
         what_would_change=changes, rationale="", evidence_ids=[e.id for e in evidence_list],
-        policy_version=policy.version,
+        policy_version=policy.version, target_mode=target_mode, target_note=target_note,
     )
     rec.rationale = template_rationale(rec, facility, w, len(alerts), commute_peak, departure_peak,
                                        commute_passed)
@@ -327,6 +331,8 @@ def template_rationale(rec: Recommendation, facility: Facility, w: Windows, aler
     posture = rec.posture.replace("_", " ").upper()
     parts = [f"For {facility.name} on {w.operating_date:%A, %B %d}, the rules engine "
              f"(policy {rec.policy_version}) recommends {posture}."]
+    if rec.target_note:
+        parts.append(f"Target day: {rec.target_note}")
     if rec.triggers:
         for t in rec.triggers:
             if t.units:

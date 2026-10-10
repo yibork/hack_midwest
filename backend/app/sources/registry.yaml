@@ -38,8 +38,7 @@ sources:
       title: MSGS
       text: MSG
       strip_html: true
-      lat: GEOM.y
-      lon: GEOM.x
+      points: [[GEOM.y, GEOM.x]]
       published_regex: "Impact reported at (\\d{1,2}:\\d{2} [AP]M) on (\\d{2}/\\d{2}/\\d{4})"
       filters:
         - {path: MT, not_in: [CL]}  # commuter lots are not road conditions
@@ -63,8 +62,7 @@ sources:
       title: eventDescription.descriptionHeader
       text: eventDescription.descriptionFull
       strip_html: true
-      lat: location.primaryPoint.lat
-      lon: location.primaryPoint.lon
+      points: [[location.primaryPoint.lat, location.primaryPoint.lon], [location.secondaryPoint.lat, location.secondaryPoint.lon]]
       published_epoch_ms: updateTime.time
       effective_epoch_ms: beginTime.time
       until_epoch_ms: endTime.time
@@ -74,9 +72,11 @@ sources:
 
   - id: kcscout_incidents
     name: "KC Scout incidents and scheduled closures (MoDOT/KDOT)"
-    url: "https://www.kcscout.net/IncidentViewer.aspx"
-    allow_prefixes: ["https://www.kcscout.net/IncidentViewer.aspx"]
-    kind: html
+    url: "https://www.kcscout.net/DataProvider.asmx/LoadEntities"
+    method: POST
+    body: "{}"
+    allow_prefixes: ["https://www.kcscout.net/DataProvider.asmx/LoadEntities"]
+    kind: api
     agent: roads
     authority: official_state
     area: {counties: [JACKSON, CLAY, PLATTE, CASS, JOHNSON, WYANDOTTE], cities: [Kansas City metro]}
@@ -84,11 +84,15 @@ sources:
     current_state: true
     link: "https://www.kcscout.net/TrafficDashboard.aspx"
     parse:
-      parser: labeled_blocks
-      start_label: "Type"
-      fields: {type: "Type", title: "Location", text: "Description", published: "Start Time"}
+      parser: json_list
+      items: d.Incident
+      title_join: [OnStreetName, AtCrossStreet]
+      text_join: [EventType, Description]
+      strip_html: true
+      published: StartDateTime
       date_format: "%a %b %d %H:%M:%S %Z %Y"
-    robots: "robots.txt 404 (no restrictions). Server-rendered incident list (refreshes every 60 s)."
+      points: [[Latitude, Longitude]]
+    robots: "robots.txt 404 (no restrictions). The JSON the KC Scout map loads (POST, empty body); it has coordinates, unlike the IncidentViewer.aspx page (used before 2026-10-11)."
 
   # ------------------------------------------------------------------ schools
   - id: kcps_news

@@ -1,9 +1,9 @@
 """The only thing local agents may return, and the code that checks it. Pure functions.
 
 Code, not the model, decides: which items exist (item_id must be one we sent), which routes an
-item mentions (must appear in the item text), whether they match the facility's access routes or
-employees' commute routes, the source's authority, and whether a "road_closure" is a full
-closure (lane, shoulder, ramp and exit closures are road_condition).
+item mentions (must appear in the item text), whether its coordinates fall on a facility access
+segment or an employee's commute corridor (app/geo.py), the source's authority, and whether a
+"road_closure" is a full closure (lane, shoulder, ramp and exit closures are road_condition).
 """
 import re
 from datetime import datetime
@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from ...geo import GeoContext
 from ...routes import normalize_routes, primary_route, routes_in_text
 
 FactType = Literal["road_closure", "road_condition", "school_closure", "school_early_dismissal", "power_outage",
@@ -79,11 +80,14 @@ def _iso(value: str | None) -> str | None:
         return None
 
 
-def validate(facts: list[LocalFact], items: dict[str, dict], agent: str, access_routes: list[str],
-             commute_routes: list[str]) -> tuple[list[dict], list[dict]]:
+RAMP = re.compile(r"\b(ramp|exit|on-ramp|off-ramp|RP)\b", re.I)
+
+
+def validate(facts: list[LocalFact], items: dict[str, dict], agent: str, geo: GeoContext) -> tuple[list[dict], list[dict]]:
     """-> (accepted fact dicts, rejected [{item_id, reason}]). Never trusts the model for routes,
-    route matches, authority or quotes."""
-    access, commute = normalize_routes(access_routes), normalize_routes(commute_routes)
+    location relevance, authority or quotes. Relevance comes from the item's coordinates:
+    within an access segment's buffer -> facility; within an employee's corridor -> commute;
+    no coordinates -> uncertain (shown, never triggers a rule or ROUTE_CLOSED)."""
     ok, bad = [], []
     for f in facts:
         item = items.get(f.item_id)
@@ -99,19 +103,26 @@ def validate(facts: list[LocalFact], items: dict[str, dict], agent: str, access_
             bad.append({"item_id": f.item_id, "reason": "supporting_quote is not a short verbatim quote from the item"})
             continue
         in_text = routes_in_text(text)
-        routes = sorted(normalize_routes(f.routes_mentioned) & in_text) or sorted(in_text & (access | commute))
+        routes = sorted(normalize_routes(f.routes_mentioned) & in_text)
         fact_type = f.fact_type
-        if fact_type == "road_closure" and not is_full_closure(text):
-            fact_type = "road_condition"  # lane/ramp/exit/weigh-station closures don't close the road
+        main = primary_route(item["title"])
         if fact_type == "road_closure":
-            main = primary_route(item["title"])  # the closed road, not cross streets in the description
-            routes = [main] if main else []
+            routes = [main] if main else []  # the closed road, not cross streets in the description
+        points = [tuple(p) for p in item.get("points") or []]
+        rel = geo.assess(points, routes)
+        if fact_type == "road_closure" and not is_full_closure(text):
+            # Lane/ramp/exit/weigh-station closures don't close the road, unless the ramp is part of
+            # a defined access segment (segment.ramps).
+            if not (RAMP.search(text) and rel.ramp_segment and not re.search(r"lane|shoulder|weigh|WS-", text, re.I)):
+                fact_type = "road_condition"
         ok.append({
             "item_id": f.item_id, "fact_type": fact_type, "location_text": f.location_text.strip()[:300],
             "routes_mentioned": routes, "counties": [c.strip().title() for c in f.counties][:5],
             "effective_from": _iso(f.effective_from), "effective_until": _iso(f.effective_until),
-            "matches_facility_access_route": bool(set(routes) & access),
-            "matches_employee_commute_routes": sorted(set(routes) & commute),
+            "relevance": rel.relevance, "distance_km": rel.distance_km, "segments": rel.segments,
+            "matches_facility_access_route": rel.matches_facility_access_route,
+            "matches_employee_commute_routes": rel.matches_employee_commute_routes,
+            "affected_employee_ids": rel.affected_employee_ids,
             "supporting_quote": quote, "confidence": f.confidence,
             "downgraded": fact_type != f.fact_type,
         })
@@ -129,6 +140,8 @@ def dedupe(facts: list[dict]) -> list[dict]:
             kept.setdefault("merged_item_ids", []).append(f["item_id"])
             kept["matches_employee_commute_routes"] = sorted(
                 set(kept["matches_employee_commute_routes"]) | set(f["matches_employee_commute_routes"]))
+            kept["affected_employee_ids"] = sorted(set(kept.get("affected_employee_ids", [])) | set(f.get("affected_employee_ids", [])))
+            kept["matches_facility_access_route"] = kept["matches_facility_access_route"] or f["matches_facility_access_route"]
         else:
             out[key] = dict(f)
     return list(out.values())
@@ -136,19 +149,17 @@ def dedupe(facts: list[dict]) -> list[dict]:
 
 # ---------------------------------------------------------------- code-only fallback (roads)
 
-def roads_fallback(items: list[dict], access_routes: list[str], commute_routes: list[str]) -> list[dict]:
+def roads_fallback(items: list[dict], geo: GeoContext, watched_routes: list[str]) -> list[dict]:
     """When no model call is possible: full closures on watched routes, from official DOT text."""
-    watched = normalize_routes(access_routes) | normalize_routes(commute_routes)
+    watched = normalize_routes(watched_routes)
     facts = []
     for it in items:
         text = f"{it['title']} {it.get('excerpt', '')}"
         main = primary_route(it["title"])
-        routes = [main] if main in watched else []
-        if not routes or not is_full_closure(text):
+        if main not in watched or not (is_full_closure(text) or RAMP.search(text)):
             continue
         facts.append(LocalFact(item_id=it["item_id"], fact_type="road_closure", location_text=it["title"][:300],
-                               routes_mentioned=routes, supporting_quote=" ".join(it["title"].split()[:MAX_QUOTE_WORDS]),
+                               routes_mentioned=[main], supporting_quote=" ".join(it["title"].split()[:MAX_QUOTE_WORDS]),
                                confidence="medium", effective_from=it.get("effective_from")))
-    by_id = {it["item_id"]: it for it in items}
-    accepted, _ = validate(facts, by_id, "roads", access_routes, commute_routes)
-    return accepted
+    accepted, _ = validate(facts, {it["item_id"]: it for it in items}, "roads", geo)
+    return [f for f in accepted if f["fact_type"] == "road_closure"]

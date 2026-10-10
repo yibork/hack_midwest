@@ -92,7 +92,7 @@ class Settings:
     resolve_home_zones: bool = field(default_factory=lambda: _pick("RESOLVE_HOME_ZONES", default="1") != "0")
 
     # Per-call agent timeouts (seconds). On timeout the deterministic path takes over.
-    agent_timeout: float = field(default_factory=lambda: float(_pick("AGENT_TIMEOUT_SECONDS", default="20")))
+    agent_timeout: float = field(default_factory=lambda: float(_pick("AGENT_TIMEOUT_SECONDS", default="45")))
     # Team quota is 60 requests/min across all endpoints; we keep headroom.
     llm_requests_per_minute: int = field(default_factory=lambda: int(_pick("LLM_REQUESTS_PER_MINUTE", default="45")))
     llm_calls_per_evaluation: int = field(default_factory=lambda: int(_pick("LLM_CALLS_PER_EVALUATION", default="12")))

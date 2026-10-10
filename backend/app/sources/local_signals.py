@@ -65,6 +65,8 @@ class Source:
     robots: str = ""
     link: str | None = None
     current_state: bool = False
+    method: str = "GET"
+    body: str | None = None
 
     def allowed(self, url: str) -> bool:
         return any(url.startswith(p) for p in self.allow_prefixes)
@@ -85,7 +87,8 @@ def sources(agent: str | None = None) -> list[Source]:
         src = Source(id=s["id"], name=s["name"], url=s["url"], kind=s["kind"], agent=s["agent"],
                      authority=s["authority"], area=s.get("area") or {}, refresh_minutes=int(s["refresh_minutes"]),
                      parse=s.get("parse") or {}, allow_prefixes=tuple(s.get("allow_prefixes") or [s["url"]]),
-                     robots=s.get("robots", ""), link=s.get("link"), current_state=bool(s.get("current_state")))
+                     robots=s.get("robots", ""), link=s.get("link"), current_state=bool(s.get("current_state")),
+                     method=s.get("method", "GET"), body=s.get("body"))
         if agent is None or src.agent == agent:
             out.append(src)
     return out
@@ -162,15 +165,21 @@ def robots_allows(url: str) -> tuple[bool, str]:
     return True, note
 
 
-def http_get(src: Source, url: str) -> bytes:
-    """GET an allowlisted URL. Redirects are followed only to allowlisted URLs."""
+def http_get(src: Source, url: str, method: str = "GET") -> bytes:
+    """GET (or the registry's POST) an allowlisted URL. Redirects are followed only to allowlisted URLs."""
     for _ in range(4):
         if not src.allowed(url):
             raise FetchError(f"blocked: {url} is outside the allowlist for {src.id}")
         ok, note = robots_allows(url)
         if not ok:
             raise PermissionError(note)
-        r = httpx.get(url, headers={"User-Agent": user_agent(), "Accept": "*/*"}, timeout=15, follow_redirects=False)
+        headers = {"User-Agent": user_agent(), "Accept": "*/*"}
+        if method == "POST":
+            r = httpx.post(url, content=(src.body or "").encode(), timeout=15, follow_redirects=False,
+                           headers={**headers, "Content-Type": "application/json; charset=utf-8"})
+            method = "GET"  # a redirect after POST is a GET
+        else:
+            r = httpx.get(url, headers=headers, timeout=15, follow_redirects=False)
         if r.is_redirect:
             url = urljoin(url, r.headers.get("location", ""))
             continue
@@ -247,9 +256,17 @@ def parse_json_list(src: Source, raw: bytes, retrieved: datetime) -> list[dict]:
     for row in rows or []:
         if not _passes(row, cfg, src):
             continue
-        text = clean(dig(row, cfg.get("text")))
-        title = dig(row, cfg.get("title")) or text[:120]
+        if cfg.get("text_join"):
+            text = clean(" ".join(str(dig(row, k) or "").replace("<br />", ". ") for k in cfg["text_join"]))
+        else:
+            text = clean(dig(row, cfg.get("text")))
+        if cfg.get("title_join"):
+            title = " ".join(x for x in (str(dig(row, k) or "") for k in cfg["title_join"]) if x and x != "(none)")
+        else:
+            title = dig(row, cfg.get("title")) or text[:120]
         published = None
+        if cfg.get("published"):
+            published = parse_date(dig(row, cfg["published"]), cfg.get("date_format"))
         if cfg.get("published_epoch_ms") and isinstance(dig(row, cfg["published_epoch_ms"]), (int, float)):
             published = datetime.fromtimestamp(dig(row, cfg["published_epoch_ms"]) / 1000, timezone.utc)
         elif cfg.get("published_regex"):
@@ -261,10 +278,15 @@ def parse_json_list(src: Source, raw: bytes, retrieved: datetime) -> list[dict]:
             v = dig(row, path)
             if isinstance(v, (int, float)):
                 extra[key] = datetime.fromtimestamp(v / 1000, timezone.utc).isoformat()
-        lat, lon = dig(row, cfg.get("lat")), dig(row, cfg.get("lon"))
-        if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
-            extra.update(lat=round(lat, 4), lon=round(lon, 4))
-        out.append(make_item(src, dig(row, cfg.get("id")), title, text, None, published, retrieved, **extra))
+        points = []
+        for lat_path, lon_path in cfg.get("points", []):
+            lat, lon = dig(row, lat_path), dig(row, lon_path)
+            if isinstance(lat, (int, float)) and isinstance(lon, (int, float)) and (lat, lon) != (0, 0):
+                points.append([round(lat, 5), round(lon, 5)])
+        if points:
+            extra["points"] = points
+        native = dig(row, cfg.get("id")) if cfg.get("id") else f"{title}|{published}"
+        out.append(make_item(src, native, title, text, None, published, retrieved, **extra))
     return out
 
 
@@ -324,40 +346,6 @@ def parse_css(src: Source, raw: bytes, retrieved: datetime) -> list[dict]:
     return out
 
 
-def parse_labeled_blocks(src: Source, raw: bytes, retrieved: datetime) -> list[dict]:
-    """KC Scout style: repeated <div><b>Label : </b>value</div> groups starting at start_label."""
-    from bs4 import BeautifulSoup
-
-    cfg = src.parse
-    soup = BeautifulSoup(raw, "html.parser")
-    container = soup.find("p") or soup
-    blocks, cur = [], None
-    for div in container.find_all("div", recursive=False) or container.find_all("div"):
-        b = div.find("b")
-        if not b:
-            continue
-        label = b.get_text(strip=True).rstrip(":").strip()
-        b.extract()
-        value = div.get_text(" ", strip=True)
-        if label == cfg["start_label"]:
-            cur = {}
-            blocks.append(cur)
-        if cur is not None:
-            cur[label] = value
-    fields = cfg["fields"]
-    out, seen = [], set()
-    for blk in blocks:
-        title = blk.get(fields["title"], "")
-        key = (title, blk.get(fields["published"]))
-        if not title or key in seen:  # the page repeats its list for screen refresh
-            continue
-        seen.add(key)
-        text = f"{blk.get(fields['type'], '')}: {blk.get(fields['text'], '')}"
-        out.append(make_item(src, key, title, text, None,
-                             parse_date(blk.get(fields["published"]), cfg.get("date_format")), retrieved))
-    return out
-
-
 def parse_page_text(src: Source, raw: bytes, retrieved: datetime) -> list[dict]:
     """One page-level item for pages whose entry markup is unknown (e.g. empty closings lists)."""
     from bs4 import BeautifulSoup
@@ -398,7 +386,7 @@ def fetch_kubra_county(src: Source, retrieved: datetime) -> tuple[list[dict], by
 
 
 PARSERS = {"json_list": parse_json_list, "rss": parse_rss, "css": parse_css,
-           "labeled_blocks": parse_labeled_blocks, "page_text": parse_page_text}
+           "page_text": parse_page_text}
 
 
 # ---------------------------------------------------------------- fetch with cache
@@ -420,7 +408,7 @@ def fetch(src: Source, now: datetime | None = None) -> FeedResult:
         if src.parse.get("parser") == "kubra_county":
             items, raw = fetch_kubra_county(src, now)
         else:
-            raw = http_get(src, src.url)
+            raw = http_get(src, src.url, src.method)
             items = PARSERS[src.parse["parser"]](src, raw, now)
         result = FeedResult(src, "ok", _recent(src, items, now)[:MAX_ITEMS], retrieved_at=now,
                             snapshot_hash=save_snapshot(raw))

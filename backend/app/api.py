@@ -45,6 +45,7 @@ def health():
         "inference": "missing" if problem else "configured",
         "inference_problem": problem,  # never contains the key
         "model": settings.chat_model,
+        "demo_mode": settings.demo_mode,
         "last_model_call": last_call(),  # {ok, at, error}; ok is null until the first call
     }
 
@@ -83,7 +84,10 @@ def evaluate_facility(facility_id: str, body: schemas.EvaluateIn | None = None, 
     eid = body.evaluation_id if body else None
     _check_new_evaluation_id(db, eid)
     try:
-        rec = pipeline.evaluate_facility(db, facility, eid)
+        rec = pipeline.evaluate_facility(db, facility, eid, target_date=body.target_date if body else None,
+                                         demo_workday=bool(body and body.demo_workday))
+    except ValueError as e:
+        raise HTTPException(403 if "DEMO_MODE" in str(e) else 422, str(e))
     except IntegrityError:
         raise HTTPException(409, f"evaluation {eid} already exists")
     return services.recommendation_detail(db, rec)

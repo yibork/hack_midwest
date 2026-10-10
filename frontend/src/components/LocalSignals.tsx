@@ -26,7 +26,7 @@ export function LocalEvidenceDetail({ e }: { e: Evidence }) {
       <div className="my-1 text-sm">
         <a className="underline" href={f.link} target="_blank" rel="noreferrer">{f.title}</a>
         <div className="text-xs text-slate-500">
-          {f.source_name} · {f.reported_at ? `reported ${fmtDateTime(f.reported_at, "America/Chicago")}` : "undated"}
+          <Where f={f} /> · {f.source_name} · {f.reported_at ? `reported ${fmtDateTime(f.reported_at, "America/Chicago")}` : "undated"}
           {f.extracted_by === "code" ? " · extracted by code (model unavailable)" : ""}
         </div>
         <blockquote className="mt-1 border-l-2 border-slate-300 pl-2 text-xs italic text-slate-700">“{f.supporting_quote}”</blockquote>
@@ -40,11 +40,19 @@ export function LocalEvidenceDetail({ e }: { e: Evidence }) {
   return null;
 }
 
+/** "31 km from facility", or why location is uncertain. */
+function Where({ f }: { f: LocalFactValue }) {
+  if (f.relevance === "uncertain" || f.distance_km == null) {
+    return <span className="font-semibold text-amber-800">location uncertain (no coordinates): not used by rules</span>;
+  }
+  return <>{f.distance_km} km from facility</>;
+}
+
 function summarize(agent: string, facts: LocalFactValue[]): string {
   const byType = new Map<string, LocalFactValue[]>();
   for (const f of facts) byType.set(f.fact_type, [...(byType.get(f.fact_type) ?? []), f]);
   return [...byType.entries()].map(([type, list]) => {
-    const access = [...new Set(list.filter((f) => f.matches_facility_access_route).flatMap((f) => f.routes_mentioned))];
+    const access = [...new Set(list.filter((f) => f.relevance === "facility").flatMap((f) => f.routes_mentioned))];
     const base = `${list.length} ${words(type)}${list.length > 1 ? "s" : ""}`;
     return access.length ? `${base} on access route ${access.join(", ")}` : base;
   }).join("; ") || `nothing relevant (${AGENT_LABEL[agent]})`;
@@ -74,9 +82,12 @@ export default function LocalSignals({ evidence, tz }: { evidence: Evidence[]; t
                   <li key={f.item_id} className="flex flex-wrap items-baseline gap-2">
                     <AuthorityBadge authority={f.authority} />
                     <a className="underline" href={f.link} target="_blank" rel="noreferrer">{f.location_text || f.title}</a>
-                    {f.matches_facility_access_route && <span className="rounded bg-red-100 px-1 text-xs font-semibold text-red-800">facility access route</span>}
-                    {f.matches_employee_commute_routes.length > 0 && (
-                      <span className="rounded bg-amber-100 px-1 text-xs text-amber-900">commute: {f.matches_employee_commute_routes.join(", ")}</span>
+                    {f.matches_facility_access_route && <span className="rounded bg-red-100 px-1 text-xs font-semibold text-red-800">on access segment {f.segments.join(", ")}</span>}
+                    <span className="text-xs text-slate-600"><Where f={f} /></span>
+                    {f.affected_employee_ids?.length > 0 && (
+                      <span className="rounded bg-amber-100 px-1 text-xs text-amber-900">
+                        in {f.affected_employee_ids.length} commute corridor{f.affected_employee_ids.length > 1 ? "s" : ""} ({f.matches_employee_commute_routes.join(", ")})
+                      </span>
                     )}
                     <span className="text-xs text-slate-500">{f.reported_at ? fmtDateTime(f.reported_at, tz) : "undated"} · {f.confidence}</span>
                   </li>

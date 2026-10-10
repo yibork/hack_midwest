@@ -228,11 +228,15 @@ def get_hourly_forecast(url: str):
                  stale_after=timedelta(hours=12))
 
 
+GRID_HOURS = 168  # the grid forecast covers ~7 days; evaluations may target a later operating day
+
+
 def get_grid_data(url: str, now: datetime | None = None):
-    """-> (hourly wind speed and gust in mph for the next 24 hours, Evidence)"""
+    """-> (hourly wind speed and gust in mph for the next 7 days, Evidence).
+    peak_gust_mph is the peak of the next 24 hours."""
     now = now or utcnow()
     start = now.replace(minute=0, second=0, microsecond=0)
-    end = start + timedelta(hours=24)
+    end = start + timedelta(hours=GRID_HOURS)
 
     def expand(series: dict) -> dict[datetime, float]:
         factor = _to_mph_factor(series.get("uom"))
@@ -254,12 +258,13 @@ def get_grid_data(url: str, now: datetime | None = None):
         speed, gust = expand(p.get("windSpeed", {})), expand(p.get("windGust", {}))
         hours = [{"time": t.isoformat(), "wind_mph": speed.get(t), "gust_mph": gust.get(t)}
                  for t in sorted(set(speed) | set(gust))]
-        gusts = [h["gust_mph"] for h in hours if h["gust_mph"] is not None]
+        day1 = (start + timedelta(hours=24)).isoformat()
+        gusts = [h["gust_mph"] for h in hours if h["gust_mph"] is not None and h["time"] < day1]
         value = {"hours": hours, "peak_gust_mph": max(gusts) if gusts else None}
         return value, value
 
     return _call("wind_forecast", url, None, parse, units="mph",
-                 note="Forecast sustained wind and gusts for the next 24 hours at the facility grid.",
+                 note="Forecast sustained wind and gusts for the next 7 days at the facility grid.",
                  source_time_key="updateTime", valid_for=timedelta(hours=3),
                  stale_after=timedelta(hours=12))
 

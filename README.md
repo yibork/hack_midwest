@@ -240,12 +240,27 @@ shows each source's last fetch.
   - if the evaluation's call budget is short, news is dropped first, then schools
 - **Effects** (`rules/local.py`, facility policy v1):
   - `access_route_closed` gives a delayed arrival, or telework if every access route is closed
-    ("N of M access routes closed"). It needs an official state closure on an access route,
-    within 15 miles, during the commute window.
-  - commute-route closures go to the people engine as `ROUTE_CLOSED`
+    ("N of M access routes closed"). It needs an official state closure whose coordinates fall
+    on a facility access segment (route + polyline + `buffer_km`), during the commute window.
+  - closures inside an employee's commute corridor (home → facility, 3 km) set `ROUTE_CLOSED` for
+    that person; items without coordinates are "uncertain" and never trigger anything
   - schools and official local items corroborate only alongside a fired weather rule
   - news is a "manager should check" note only
   - local signals never lower the posture
+
+## Operating calendar
+
+- **Default target:** each evaluation targets the next operating day (Mon-Fri, skipping US
+  federal holidays, `app/calendar.py`). The day rolls over at close time. The recommendation
+  states the date and why, e.g. "Mon Oct 12 is a federal holiday (Columbus Day); next workday
+  Tue Oct 13".
+- **Picking a day:** "Evaluate for" lets the manager pick a day. A weekend or holiday only
+  affects the people scheduled that day: the weekend crew and emergency staff.
+- **Critical functions** can run on their own days. Animal care, lab freezers and security run
+  7 days; IT operations runs Mon-Fri.
+- **Demo:** in `DEMO_MODE`, "Today as a workday (DEMO)" evaluates today with the weekday
+  schedule, clearly labelled.
+- **Schema:** new nullable columns are added automatically at startup (`db.add_missing_columns`).
 
 ## People, access and notifications
 
@@ -298,7 +313,7 @@ Key rules:
 | `SITE_DOMAIN` | Production only: domain for Caddy's automatic HTTPS; empty means plain HTTP on :80 |
 | `NWS_USER_AGENT` | Required by api.weather.gov; include a contact |
 | `LLM_REQUESTS_PER_MINUTE`, `LLM_CALLS_PER_EVALUATION` | Defaults 45 / 12 |
-| `AGENT_TIMEOUT_SECONDS` | Default 20; on timeout the deterministic path takes over |
+| `AGENT_TIMEOUT_SECONDS` | Default 45; on timeout the deterministic path takes over (evidence already fetched is reused, not duplicated) |
 | `NTFY_TOPIC` | Fallback push topic for people without their own `ntfy_topic` |
 | `PUBLIC_BASE_URL` | Base for ack links in messages (default `http://localhost:8000`; set the public URL in production) |
 | `DEMO_MODE` | `1`: ack timers 1/2/3 min, `/api/demo/simulate` enabled |

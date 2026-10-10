@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, newEvaluationId, type RecommendationDetail } from "../api";
+import { api, newEvaluationId, type EvaluateTarget, type RecommendationDetail } from "../api";
 import AgentActivity from "../components/AgentActivity";
 import RecommendationView from "../components/RecommendationView";
 import { Button, ErrorBox, Loading, useAsync } from "../components/ui";
@@ -18,6 +18,9 @@ export default function FacilityPage() {
   const [evaluating, setEvaluating] = useState(false);
   const [evalError, setEvalError] = useState<string | null>(null);
   const [runningEval, setRunningEval] = useState<string | null>(null);
+  const [target, setTarget] = useState<string>("next"); // "next" | "demo" | YYYY-MM-DD
+  const health = useAsync(() => api.health(), []);
+  const demo = !!health.data?.demo_mode;
 
   async function reevaluate() {
     if (!facilityId) return;
@@ -25,8 +28,9 @@ export default function FacilityPage() {
     setRunningEval(eid);
     setEvaluating(true);
     setEvalError(null);
+    const opts: EvaluateTarget = target === "next" ? {} : target === "demo" ? { demo_workday: true } : { target_date: target };
     try {
-      latest.setData(await api.evaluate(facilityId, eid));
+      latest.setData(await api.evaluate(facilityId, eid, opts));
     } catch (e) {
       setEvalError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -57,13 +61,24 @@ export default function FacilityPage() {
             {facility && (
               <div className="text-sm text-slate-600">
                 {facility.address} · Open {facility.open_time}–{facility.close_time} ({facility.timezone}) · Routes{" "}
-                {facility.access_routes.join(", ")}
+                {facility.access_routes.map((r) => r.route).join(", ")}
               </div>
             )}
           </div>
-          <Button onClick={reevaluate} disabled={evaluating || !facilityId}>
-            {evaluating ? "Evaluating… (live NWS)" : "Re-evaluate"}
-          </Button>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="text-sm">
+              <span className="block text-xs font-semibold text-slate-600">Evaluate for</span>
+              <select className="rounded border border-slate-300 bg-white px-2 py-2" value={target}
+                      onChange={(e) => setTarget(e.target.value)}>
+                <option value="next">Next operating day</option>
+                {nextDays(8).map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                {demo && <option value="demo">Today as a workday (DEMO)</option>}
+              </select>
+            </label>
+            <Button onClick={reevaluate} disabled={evaluating || !facilityId}>
+              {evaluating ? "Evaluating… (live NWS)" : "Re-evaluate"}
+            </Button>
+          </div>
         </div>
 
         {evalError && <ErrorBox error={evalError} onRetry={reevaluate} />}
@@ -91,4 +106,17 @@ export default function FacilityPage() {
       <AgentActivity evaluationId={evaluating ? runningEval : rec?.evaluation_id ?? runningEval} live={evaluating} />
     </div>
   );
+}
+
+/** Today and the next days, labelled with the weekday. */
+function nextDays(n: number): { value: string; label: string }[] {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const label = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    out.push({ value, label: i === 0 ? `Today (${label})` : label });
+  }
+  return out;
 }

@@ -1,0 +1,4 @@
+{"d": {"Camera": [], "Sign": [], "Incident": [
+ {"EventType": "Incident", "Description": "2 VEHICLE CRASH<br />I-70 WB PAST WOODS CHAPEL RD<br />ALL LANES CLOSED", "LanesClosed": "1,2", "StartDateTime": "Sat Oct 10 06:28:00 CDT 2026", "Latitude": 39.0369, "Longitude": -94.3478, "OnStreetName": "I-70 WB", "AtCrossStreet": "PAST WOODS CHAPEL RD"},
+ {"EventType": "Scheduled", "Description": "EXIT CLOSED<br />I-35 SB TO GARDNER RD<br />USE ALT ROUTE", "LanesClosed": "1", "StartDateTime": "Fri May 15 09:02:38 CDT 2026", "Latitude": 38.8121, "Longitude": -94.9289, "OnStreetName": "I-35 SB", "AtCrossStreet": "TO GARDNER RD"}
+]}}

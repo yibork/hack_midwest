@@ -29,7 +29,7 @@ For each candidate:
 |---|---|---|---|---|
 | MoDOT Traveler Information | roads | official_state | JSON | ~1,000 statewide items, filtered to KC-area counties; commuter lots dropped. Text includes "Impact reported at …" (report time), kept apart from when the closure starts. |
 | KanDrive (KDOT) | roads | official_state | API (JSON) | Filtered to a KC-metro bounding box. Has `beginTime` (effective) and `updateTime` (report). Staff contact names and phone numbers in the feed are never stored. |
-| KC Scout | roads | official_state | HTML | Server-rendered incident list (MoDOT/KDOT program). It lists ramp, exit and lane closures alongside full closures; code only counts a mainline full closure as `road_closure`. |
+| KC Scout | roads | official_state | API (JSON) | `POST DataProvider.asmx/LoadEntities`, the JSON the KC Scout map loads; it has coordinates, unlike the IncidentViewer.aspx page this replaced. It lists ramp, exit and lane closures alongside full closures; code only counts a mainline full closure as `road_closure`. |
 | Kansas City Public Schools | schools | official_local | HTML (Apptegy) | Date-only posts: today's and yesterday's are kept. |
 | North Kansas City Schools | schools | official_local | HTML (Finalsite) | |
 | Hickman Mills C-1 | schools | official_local | HTML (Finalsite) | |
@@ -61,17 +61,30 @@ source type, but no client for it exists in this codebase yet (the API itself an
 | Shawnee Mission School District alerts | Static page, no list of announcements. |
 | Social networks | Out of scope by policy. |
 
+## Location relevance
+
+All three road sources give coordinates (MoDOT `GEOM`, KanDrive primary/secondary points, KC
+Scout `Latitude`/`Longitude`). Matching is geographic (`backend/app/geo.py`):
+- **Facility:** an item matches if a point lies within an access segment's buffer (default
+  2 km) on that segment's route. Segments are in the facility's `access_routes`, drawn from
+  KC Scout camera locations along I-35, I-70 and US-71 downtown.
+- **Employee:** an item matches if it lies within the person's commute corridor (a straight
+  line from home to the facility, buffered 3 km) on one of their commute routes.
+- **No coordinates:** relevance is `uncertain`. The item is shown, but never triggers a rule or
+  ROUTE_CLOSED.
+- **Ramp closures** are `road_condition`, unless they are inside a segment marked `ramps: true`.
+
 ## What the facts can change
 
 Rules in `backend/app/rules/local.py` (cited as facility policy v1):
-- **Facility access route closed.** A road closure from an official state source, on a facility
-  access route, during the commute window, triggers the `access_route_closed` rule:
+- **Facility access route closed.** A road closure from an official state source, located on a
+  facility access segment, during the commute window, triggers the `access_route_closed` rule:
   - `delayed_arrival` if at least one access route stays open
   - `telework` if every access route is closed
 
   The rule's margin reads "N of M access routes closed".
-- **Employee commute route closed.** An official state closure on an employee's commute route sets
-  that person's `ROUTE_CLOSED` exposure code. It doesn't change the facility posture.
+- **Employee commute route closed.** An official state closure inside an employee's commute
+  corridor sets `ROUTE_CLOSED` for that person only. It doesn't change the facility posture.
 - **Schools.** Closures in the facility county, or in 3 or more employee home counties, add a
   corroboration note. They raise confidence one level only when a weather rule already fired.
 - **Official local public safety and utilities.** These add a "manager should check" note, and
