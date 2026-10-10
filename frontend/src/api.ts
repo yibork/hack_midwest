@@ -330,6 +330,9 @@ export class ApiError extends Error {
   }
 }
 
+export const NEEDS_PERSON_EVENT = "closurecall:needs-person";
+export const NEEDS_PERSON_MESSAGE = "Choose who you're viewing as";
+
 // Demo role switcher (no real auth): every request says who is looking. The server filters.
 let viewerHeaders: Record<string, string> = {};
 export function setViewer(role: string, personId?: string | null) {
@@ -349,6 +352,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       else if (Array.isArray(body.detail)) msg = body.detail.map((d: { msg: string }) => d.msg).join("; ");
     } catch {
       /* not JSON */
+    }
+    if (res.status === 400 && msg.includes("X-Person")) {
+      // Demo role switcher: a role that needs a person has none yet. Ask, don't alarm.
+      window.dispatchEvent(new Event(NEEDS_PERSON_EVENT));
+      throw new ApiError(res.status, NEEDS_PERSON_MESSAGE);
     }
     throw new ApiError(res.status, msg);
   }

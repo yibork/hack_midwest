@@ -7,7 +7,9 @@ services:
     env_file: .env
     environment:
       CLOSURECALL_DOTENV: "0"  # values come from env_file; there is no .env inside the image
-      SQLITE_PATH: /app/data/db/closure_call.db  # used only when DATABASE_URL is empty
+      # Used only when DATABASE_URL is empty. v2: the people/notice schema; the previous file is
+      # left untouched in the volume (no migrations yet, see README "Schema changes").
+      SQLITE_PATH: /app/data/db/closure_call_v2.db
       SNAPSHOT_DIR: /app/data/snapshots
     volumes:
       - snapshots:/app/data/snapshots

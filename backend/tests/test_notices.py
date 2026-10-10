@@ -144,6 +144,7 @@ def test_call_in_flow_and_ack_page():
 
     page = client.get(f"/ack/{n['id']}")
     assert page.status_code == 200 and "recorded" in page.text
+    assert f'href="/me?as={emp_id("jordan")}"' in page.text and "View my status" in page.text
     animal = next(c for c in client.get(f"/api/notices/{notice.id}", headers=MANAGER).json()["coverage"]
                   if c["code"] == "animal_care")
     assert animal["label"] == "Animal care 2/2 - covered"

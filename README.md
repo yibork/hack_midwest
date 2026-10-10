@@ -335,6 +335,9 @@ frontend/src/
 
 ## Schema changes
 
+Production (`compose.prod.yml`) keeps SQLite at `closure_call_v2.db`, since the people/notice schema
+replaced the old tables. The previous `closure_call.db` stays in the volume, untouched.
+
 There are no migrations yet. After pulling model changes, delete `backend/closure_call.db` (dev) or
 `docker compose down -v` (Postgres). Demo data is reseeded on startup.
 

@@ -1,6 +1,7 @@
 import asyncio
 import html
 import logging
+from urllib.parse import quote
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, HTTPException
@@ -59,7 +60,10 @@ def ack_page(notification_id: str):
             when = n.acknowledged_at.strftime("%Y-%m-%d %H:%M UTC")
             body = (f"<h1>Thank you</h1><p>Your acknowledgment was recorded at {html.escape(when)}.</p>"
                     f"<p>Instruction: <strong>{html.escape(n.duty_instruction)}</strong></p>"
-                    "<p>Gracias. Su confirmación quedó registrada.</p>")
+                    "<p>Gracias. Su confirmación quedó registrada.</p>"
+                    # Opens the app as this person (demo role switcher, no real auth).
+                    f'<p><a href="/me?as={quote(n.employee_id)}">View my status</a> · '
+                    f'<a href="/me?as={quote(n.employee_id)}">Ver mi estado</a></p>')
             status = 200
     page = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" '
             'content="width=device-width,initial-scale=1"><title>Closure Call</title></head>'

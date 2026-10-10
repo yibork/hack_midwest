@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
-import type { Confidence, EvidenceStatus, Posture } from "../api";
+import { NEEDS_PERSON_MESSAGE, type Confidence, type EvidenceStatus, type Posture } from "../api";
 
 // ---------------------------------------------------------------- data loading
 
@@ -35,6 +35,14 @@ export function Loading({ label = "Loading…" }: { label?: string }) {
 }
 
 export function ErrorBox({ error, onRetry }: { error: string; onRetry?: () => void }) {
+  if (error === NEEDS_PERSON_MESSAGE) {
+    // Not an error: the demo role switcher needs a person. The switcher shows the same prompt.
+    return (
+      <div role="status" className="rounded border border-slate-300 bg-slate-50 p-3 text-slate-700">
+        Choose who you're viewing as in the menu.
+      </div>
+    );
+  }
   return (
     <div className="rounded border border-red-300 bg-red-50 p-3 text-red-800 flex items-start justify-between gap-4">
       <div>

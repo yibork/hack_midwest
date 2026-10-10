@@ -26,7 +26,7 @@ const NAV: Record<ViewerRole, { to: string; label: string; hint: string }[]> = {
 };
 
 function Shell() {
-  const { viewer } = useViewer();
+  const { viewer, ready } = useViewer();
   const nav = NAV[viewer.role];
   const home = nav[0].to;
   return (
@@ -57,6 +57,11 @@ function Shell() {
         </p>
       </nav>
       <main className="min-w-0 flex-1 p-4 md:p-6">
+        {!ready ? (
+          <div role="status" className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">
+            Choose who you're viewing as in the menu.
+          </div>
+        ) : (
         <Routes key={`${viewer.role}:${viewer.personId ?? ""}`}>
           <Route path="/" element={<Navigate to={home} replace />} />
           {viewer.role === "facility_manager" && (
@@ -75,6 +80,7 @@ function Shell() {
           {viewer.role === "employee" && <Route path="/me" element={<MyStatusPage />} />}
           <Route path="*" element={<Navigate to={home} replace />} />
         </Routes>
+        )}
       </main>
     </div>
   );
