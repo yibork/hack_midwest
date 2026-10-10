@@ -76,6 +76,13 @@ class Settings:
     # For demos: send every email to this one inbox instead of the fake roster addresses.
     notify_email_override: str = field(default_factory=lambda: _pick("NOTIFY_EMAIL_OVERRIDE"))
 
+    # Shortens ack reminder/escalation timers to 1/2/3 minutes and enables /api/demo/* simulation.
+    demo_mode: bool = field(default_factory=lambda: _pick("DEMO_MODE", default="0").lower() in ("1", "true", "yes"))
+    # Base URL for links in messages (ack links). In production set it to the public URL.
+    public_base_url: str = field(default_factory=lambda: _pick("PUBLIC_BASE_URL", default="http://localhost:8000").rstrip("/"))
+    # Resolve employee home zones via NWS /points when seeding (tests turn this off: no network).
+    resolve_home_zones: bool = field(default_factory=lambda: _pick("RESOLVE_HOME_ZONES", default="1") != "0")
+
     # Per-call agent timeouts (seconds). On timeout the deterministic path takes over.
     agent_timeout: float = field(default_factory=lambda: float(_pick("AGENT_TIMEOUT_SECONDS", default="20")))
     notify_agent_timeout: float = field(default_factory=lambda: float(_pick("NOTIFY_AGENT_TIMEOUT_SECONDS", default="120")))
