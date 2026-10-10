@@ -127,7 +127,7 @@ function describe(e: RecordEvent): Line | null {
       return { ...base, title: "Writer draft rejected → template", detail: p.reason, tone: "warn" };
     case "recommendation.created":
       return {
-        ...base, title: `Rules engine: ${String(p.posture).replace("_", " ").toUpperCase()}`,
+        ...base, title: `Rules engine: ${String(p.posture).replace("_", " ").toUpperCase()}${p.status === "preliminary" ? " (preliminary)" : ""}`,
         detail: `${p.confidence} confidence · ${p.triggers.length} trigger(s) · rationale: ${p.rationale_source}`, tone: "engine",
       };
     case "decision.recorded":
@@ -148,6 +148,16 @@ function describe(e: RecordEvent): Line | null {
         detail: [...(p.summary ?? []), ...((p.rejected ?? []) as { reason: string }[]).map((r) => `rejected: ${r.reason}`)].join(" · ") || undefined,
         tone: p.rejected?.length ? "warn" : "agent",
       };
+    case "local.roads_reused":
+      return { ...base, title: `Roads agent: ${p.note}`, detail: `${p.facts} fact(s), no model call`, tone: "agent" };
+    case "recommendation.finalized":
+      return {
+        ...base, title: `Final after road check: ${String(p.final.posture).replace("_", " ").toUpperCase()}`,
+        detail: p.changed ? `changed from preliminary ${p.preliminary.posture} / ${p.preliminary.confidence}` : "same as preliminary",
+        tone: "engine",
+      };
+    case "rationale.updated":
+      return { ...base, title: `Rationale: ${p.rationale_note}`, tone: p.rationale_source === "agent" ? "agent" : "warn" };
     case "notice.created":
       return {
         ...base, title: `Notice v${p.version} prepared (${p.kind})`,

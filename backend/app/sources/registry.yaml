@@ -34,7 +34,7 @@ sources:
     link: "https://traveler.modot.org/map/"
     parse:
       parser: json_list
-      id: OID
+      # no id: MoDOT reassigns OIDs whenever the feed regenerates; item ids are content-based
       title: MSGS
       text: MSG
       strip_html: true

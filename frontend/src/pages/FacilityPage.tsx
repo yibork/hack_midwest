@@ -38,8 +38,10 @@ export default function FacilityPage() {
     }
   }
 
-  const pending = latest.data?.rationale_note === "AI draft pending";
-  // The recommendation is shown as soon as the rules engine finishes; the AI draft lands later.
+  const preliminary = latest.data?.status === "preliminary";
+  const pending = preliminary || latest.data?.rationale_note === "AI draft pending";
+  // The recommendation is shown as soon as the rules engine finishes. A live road check (cache miss)
+  // finalizes it later; the AI draft lands after that.
   useEffect(() => {
     const rec = latest.data;
     if (!pending || !rec) return;
@@ -47,9 +49,12 @@ export default function FacilityPage() {
     const t = setInterval(async () => {
       try {
         const fresh = await api.recommendation(rec.id);
-        if (fresh.rationale_note !== "AI draft pending" || Date.now() - started > 180_000) {
+        const settled = fresh.status !== "preliminary" && fresh.rationale_note !== "AI draft pending";
+        if (settled || Date.now() - started > 240_000) {
           latest.setData(fresh);
           clearInterval(t);
+        } else if (fresh.status !== latest.data?.status) {
+          latest.setData(fresh); // preliminary -> final: show the final result while the AI draft runs
         }
       } catch {
         /* keep the template on screen; try again next tick */
@@ -115,11 +120,15 @@ export default function FacilityPage() {
           <RecommendationView
             rec={rec}
             actions={
-              <Link to={`/decide?recommendation=${rec.id}`}>
-                <Button variant={rec.decision ? "secondary" : "primary"}>
-                  {rec.decision ? "View decision & notifications" : "Approve or override →"}
-                </Button>
-              </Link>
+              preliminary ? (
+                <Button disabled title="Approval opens when the road check finishes">Approve or override →</Button>
+              ) : (
+                <Link to={`/decide?recommendation=${rec.id}`}>
+                  <Button variant={rec.decision ? "secondary" : "primary"}>
+                    {rec.decision ? "View decision & notifications" : "Approve or override →"}
+                  </Button>
+                </Link>
+              )
             }
           />
         )}

@@ -164,6 +164,8 @@ class Recommendation(ORMModel):
     # "AI draft pending" | "AI draft" | "AI draft rejected: <reason> - template used" | "LLM unavailable - template used"
     rationale_note: str | None = None
     template_rationale: str | None = None  # the engine's text (kept when an AI draft replaces it)
+    # "preliminary": a live road check is still running; decisions are blocked until it is final.
+    status: str | None = "final"
 
 
 HHMM = Annotated[str, StringConstraints(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")]

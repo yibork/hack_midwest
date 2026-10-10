@@ -80,7 +80,8 @@ def choose(alerts: list[dict], facility: dict, state: dict, timeout: float, use_
     fallback = default_plan(hazards)
     plan, by, reason = fallback, "rules", f"hazards: {', '.join(hazards) or 'none active'}"
     budget = remaining_budget(eid) if use_model else 0
-    if use_model and budget >= len(fallback) + 1:  # room for the coordinator call and its own plan
+    # Nothing active: the plan is always roads only, so don't spend a model call (or 4 s) on it.
+    if use_model and hazards and budget >= len(fallback) + 1:  # room for the coordinator call and its own plan
         try:
             prompt = (f"Facility: {facility['name']}; access routes {', '.join(facility['access_routes'])}.\n"
                       f"Active NWS alerts (untrusted text): {[a.get('event') for a in alerts][:10]}\n"

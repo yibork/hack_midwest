@@ -128,6 +128,7 @@ class Recommendation(Base):
     lead_time_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     rationale_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     template_rationale: Mapped[str | None] = mapped_column(Text, nullable=True)  # engine text, kept when an AI draft replaces it
+    status: Mapped[str | None] = mapped_column(String(12), nullable=True)  # preliminary | final (None = final)
 
 
 class Decision(Base):
@@ -203,6 +204,22 @@ class MessageDraft(Base):
     body: Mapped[str] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(10))  # agent
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class RoadFactsCache(Base):
+    """Validated road facts for a set of road-source contents (+ facility, target day, geometry).
+    Unchanged sources -> reuse the facts without a model call."""
+
+    __tablename__ = "road_facts_cache"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    facility_id: Mapped[str] = mapped_column(String(64), index=True)
+    operating_date: Mapped[date] = mapped_column(Date)
+    source_hashes: Mapped[dict] = mapped_column(JSON, default=dict)  # source_id -> content hash
+    entries: Mapped[list] = mapped_column(JSON, default=list)  # [{fact, item, source_id, how}]
+    rejected: Mapped[list] = mapped_column(JSON, default=list)
+    origin: Mapped[str] = mapped_column(String(12))  # evaluation | background
+    evaluation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
 
 
 class ScheduledJob(Base):

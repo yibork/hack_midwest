@@ -41,6 +41,18 @@ async def _scheduler_loop():
             log.exception("scheduler tick failed")
 
 
+async def _roads_watch_loop():
+    """Road sources refresh every 5 min; on a change, run the roads agent then (max 1 per 10 min)."""
+    from .agents.local import roads_cache
+
+    while True:
+        await asyncio.sleep(300)
+        try:
+            await asyncio.to_thread(roads_cache.watch_tick)
+        except Exception:  # noqa: BLE001 - keep the loop alive
+            log.exception("roads watch failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_seeded()  # creates tables, inserts demo data if missing; tolerates an unreachable DB
@@ -49,6 +61,8 @@ async def lifespan(app: FastAPI):
         tasks.append(asyncio.create_task(_escalation_loop()))
     if settings.scheduler_loop:
         tasks.append(asyncio.create_task(_scheduler_loop()))
+    if settings.roads_watch and settings.local_signals:
+        tasks.append(asyncio.create_task(_roads_watch_loop()))
     yield
     for task in tasks:
         task.cancel()

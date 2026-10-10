@@ -87,7 +87,9 @@ export interface Recommendation {
   target_mode: "next_operating_day" | "explicit" | "demo_workday" | "scheduled" | null;
   target_note: string | null;
   lead_time_hours: number | null;
-  rationale_note: string | null; // "AI draft" | "AI draft rejected: <reason> - template used" | "LLM unavailable - template used"
+  rationale_note: string | null; // "AI draft pending" | "AI draft" | "AI draft rejected: <reason> - template used" | ...
+  template_rationale: string | null;
+  status: "preliminary" | "final" | null; // preliminary: a live road check is running; decisions are blocked
 }
 
 export interface DecisionClock {

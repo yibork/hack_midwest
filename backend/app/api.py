@@ -110,6 +110,8 @@ def get_recommendation(rec_id: str, db: Session = Depends(get_db)):
 @router.post("/recommendations/{rec_id}/decision", response_model=schemas.Decision)
 def decide(rec_id: str, body: schemas.DecisionIn, db: Session = Depends(get_db)):
     rec = _get_or_404(db, models.Recommendation, rec_id)
+    if rec.status == "preliminary":
+        raise HTTPException(409, "Preliminary - road check in progress; decide once it is final.")
     if db.scalar(select(models.Decision).where(models.Decision.recommendation_id == rec_id)):
         raise HTTPException(409, "A decision already exists for this recommendation; re-evaluate to decide again.")
     return services.record_decision(db, rec, body)

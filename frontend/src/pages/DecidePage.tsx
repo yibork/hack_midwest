@@ -69,6 +69,11 @@ function DecideFlow({ rec }: { rec: RecommendationDetail }) {
               </p>
             )}
           </Card>
+        ) : rec.status === "preliminary" ? (
+          <Card title="2 · Approve or override">
+            <p className="text-slate-700">Preliminary - road check in progress. Approval opens when it finishes.</p>
+            <Button className="mt-3" variant="secondary" onClick={() => window.location.reload()}>Check again</Button>
+          </Card>
         ) : (
           <DecisionForm rec={rec} onDecided={setDecision} />
         )}

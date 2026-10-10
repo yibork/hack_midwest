@@ -109,12 +109,23 @@ class FeedResult:
     retrieved_at: datetime = field(default_factory=utcnow)
     snapshot_hash: str | None = None
 
+    @property
+    def content_hash(self) -> str | None:
+        """Hash of the parsed, area-filtered items (not the raw response: MoDOT regenerates its feed
+        every minute with new record ids, and KC Scout's response also carries live sign text)."""
+        if self.status != "ok":
+            return None
+        keys = sorted(json.dumps([i["item_id"], i["title"], i.get("excerpt"), i.get("points"), i.get("effective_from")])
+                      for i in self.items)
+        return hashlib.sha256("\n".join(keys).encode()).hexdigest()
+
     def to_evidence(self) -> Evidence:
         s = self.source
         return Evidence(
             id=uuid.uuid4().hex, source="local", kind="local_feed",
             value={"source_id": s.id, "source_name": s.name, "agent": s.agent, "authority": s.authority,
                    "fetch_status": self.status, "error": self.error, "item_count": len(self.items),
+                   "content_hash": self.content_hash,
                    "items": self.items},
             retrieved_at=self.retrieved_at, valid_until=self.retrieved_at + timedelta(minutes=s.refresh_minutes),
             url=s.link or s.url, snapshot_hash=self.snapshot_hash,
@@ -308,7 +319,7 @@ def parse_json_list(src: Source, raw: bytes, retrieved: datetime) -> list[dict]:
                 points.append([round(lat, 5), round(lon, 5)])
         if points:
             extra["points"] = points
-        native = dig(row, cfg.get("id")) if cfg.get("id") else f"{title}|{published}"
+        native = dig(row, cfg.get("id")) if cfg.get("id") else hashlib.sha256(f"{title}|{text}".encode()).hexdigest()
         out.append(make_item(src, native, title, text, None, published, retrieved, **extra))
     return out
 

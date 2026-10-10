@@ -10,6 +10,12 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
   const tz = rec.facility.timezone;
   return (
     <div className="space-y-4">
+      {rec.status === "preliminary" && (
+        <div role="status" className="flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 font-semibold text-sky-900">
+          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-sky-300 border-t-sky-700" />
+          Preliminary - road check in progress. Approval opens when it finishes; the result may still change.
+        </div>
+      )}
       <Card>
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div>
@@ -112,7 +118,7 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
           <span className="flex flex-wrap items-center gap-2">
             Rationale
             <span className={`rounded px-2 py-0.5 text-xs font-semibold normal-case tracking-normal ${
-              rec.rationale_note === "AI draft pending" ? "bg-sky-100 text-sky-900"
+              rec.rationale_note === "AI draft pending" || rec.status === "preliminary" ? "bg-sky-100 text-sky-900"
                 : rec.rationale_source === "agent" ? "bg-indigo-100 text-indigo-800" : "bg-amber-100 text-amber-900"}`}>
               {rec.rationale_note === "AI draft pending" && (
                 <span className="mr-1 inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-sky-300 border-t-sky-700 align-middle" />
