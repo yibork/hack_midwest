@@ -1,17 +1,34 @@
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { RoleProvider, useViewer, type ViewerRole } from "./components/RoleContext";
+import RoleSwitcher from "./components/RoleSwitcher";
 import DecidePage from "./pages/DecidePage";
 import FacilityPage from "./pages/FacilityPage";
+import MyStatusPage from "./pages/MyStatusPage";
 import NationalPage from "./pages/NationalPage";
+import PersonasPage from "./pages/PersonasPage";
 import RecordPage from "./pages/RecordPage";
+import SecurityPage from "./pages/SecurityPage";
+import TeamPage from "./pages/TeamPage";
 
-const NAV = [
-  { to: "/facility", label: "Facility", hint: "Recommendation" },
-  { to: "/decide", label: "Decide", hint: "Approve & notify" },
-  { to: "/national", label: "National scan", hint: "Active US alerts" },
-  { to: "/record", label: "Record", hint: "Replay decisions" },
-];
+const NAV: Record<ViewerRole, { to: string; label: string; hint: string }[]> = {
+  facility_manager: [
+    { to: "/facility", label: "Facility", hint: "Recommendation" },
+    { to: "/decide", label: "Decide", hint: "Approve, notify, call-ins" },
+    { to: "/team", label: "Teams", hint: "Supervisor boards" },
+    { to: "/security", label: "Access list", hint: "Security desk view" },
+    { to: "/personas", label: "Demo personas", hint: "ntfy QR codes" },
+    { to: "/national", label: "National scan", hint: "Active US alerts" },
+    { to: "/record", label: "Record", hint: "Replay decisions" },
+  ],
+  supervisor: [{ to: "/team", label: "My team", hint: "Status, acks, exposure" }],
+  security_desk: [{ to: "/security", label: "Access list", hint: "Who may enter today" }],
+  employee: [{ to: "/me", label: "My status", hint: "What to do today" }],
+};
 
-export default function App() {
+function Shell() {
+  const { viewer } = useViewer();
+  const nav = NAV[viewer.role];
+  const home = nav[0].to;
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
       <nav className="bg-slate-900 text-slate-100 md:w-56 md:shrink-0">
@@ -19,8 +36,9 @@ export default function App() {
           <div className="text-lg font-extrabold tracking-tight">Closure Call</div>
           <div className="text-xs text-slate-400">Weather operating-posture support</div>
         </div>
+        <div className="px-4 pb-3"><RoleSwitcher /></div>
         <ul className="flex overflow-x-auto md:block">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <li key={n.to} className="shrink-0">
               <NavLink
                 to={n.to}
@@ -39,15 +57,33 @@ export default function App() {
         </p>
       </nav>
       <main className="min-w-0 flex-1 p-4 md:p-6">
-        <Routes>
-          <Route path="/" element={<Navigate to="/facility" replace />} />
-          <Route path="/facility" element={<FacilityPage />} />
-          <Route path="/decide" element={<DecidePage />} />
-          <Route path="/national" element={<NationalPage />} />
-          <Route path="/record" element={<RecordPage />} />
-          <Route path="*" element={<Navigate to="/facility" replace />} />
+        <Routes key={`${viewer.role}:${viewer.personId ?? ""}`}>
+          <Route path="/" element={<Navigate to={home} replace />} />
+          {viewer.role === "facility_manager" && (
+            <>
+              <Route path="/facility" element={<FacilityPage />} />
+              <Route path="/decide" element={<DecidePage />} />
+              <Route path="/personas" element={<PersonasPage />} />
+              <Route path="/national" element={<NationalPage />} />
+              <Route path="/record" element={<RecordPage />} />
+            </>
+          )}
+          {(viewer.role === "facility_manager" || viewer.role === "supervisor") && <Route path="/team" element={<TeamPage />} />}
+          {(viewer.role === "facility_manager" || viewer.role === "security_desk") && (
+            <Route path="/security" element={<SecurityPage />} />
+          )}
+          {viewer.role === "employee" && <Route path="/me" element={<MyStatusPage />} />}
+          <Route path="*" element={<Navigate to={home} replace />} />
         </Routes>
       </main>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <RoleProvider>
+      <Shell />
+    </RoleProvider>
   );
 }

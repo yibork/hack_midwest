@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { fmtTime } from "./ui";
 
-/** "Decide by HH:MM" with a live countdown. decideBy = earliest included departure - 30 min. */
-export default function DecisionClock({ decideBy, timezone }: { decideBy: string | null; timezone: string }) {
+/** "Decide by HH:MM" with a live countdown. decideBy = earliest notify_by among people who must
+ *  act; `label` names who drives it ("first: Dana R., early shift 05:00, 40 min commute"). */
+export default function DecisionClock({ decideBy, timezone, label }: { decideBy: string | null; timezone: string; label?: string }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -10,7 +11,7 @@ export default function DecisionClock({ decideBy, timezone }: { decideBy: string
   }, []);
 
   if (!decideBy) {
-    return <div className="text-slate-500">No decision deadline (no one to notify).</div>;
+    return <div className="text-slate-500">{label ?? "No decision deadline (nobody needs to act)."}</div>;
   }
   const ms = new Date(decideBy).getTime() - now;
   const overdue = ms < 0;
@@ -27,7 +28,8 @@ export default function DecisionClock({ decideBy, timezone }: { decideBy: string
       <div className={`mt-1 text-lg font-semibold tabular-nums ${overdue ? "text-red-700" : ms < 3_600_000 ? "text-orange-600" : "text-slate-700"}`}>
         {overdue ? `Overdue by ${countdown}` : `${countdown} left`}
       </div>
-      <div className="text-xs text-slate-500 mt-1">Earliest departure of included staff minus 30 min</div>
+      <div className="mt-1 text-sm text-slate-700">{label}</div>
+      <div className="text-xs text-slate-500">Earliest notify-by: shift start − commute − 30 min (dismissal − 45 min)</div>
     </div>
   );
 }

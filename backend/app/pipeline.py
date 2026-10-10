@@ -1,6 +1,9 @@
 """One evaluation: weather agent -> rules engine (pure, unchanged) -> writer agent -> stored
 Recommendation, all under one evaluation_id.
 
+Then: employee home-zone alerts are stored as Evidence (people exposure), and message wording is
+pre-drafted in the background so approval can send at once.
+
 If an agent is unreachable, errors, or takes longer than AGENT_TIMEOUT_SECONDS, the same tools
 are called directly in code, the template rationale is used, and "agent_unavailable" is recorded.
 """
@@ -9,10 +12,12 @@ import uuid
 from sqlalchemy.orm import Session
 
 from . import models, record, schemas
-from .agents import weather_agent, writer_agent
+from .agents import message_agent, weather_agent, writer_agent
 from .agents.runtime import AgentUnavailable, new_state, record_unavailable
 from .config import settings
 from .db import utcnow
+from .notify import exposure
+from .notify.plan import load_inputs
 from .rules.engine import evaluate
 from .sources import nws
 
@@ -36,6 +41,12 @@ def evaluate_facility(db: Session, facility: models.Facility,
     weather_agent.ensure_required_evidence(fac, eid, agent_ran)
     evidence = weather_agent.evidence_for(eid)
 
+    # 1b. People exposure: alerts for employees' home zones, one request per unique zone.
+    if not fac.temporary:
+        people = load_inputs(db, facility, utcnow().date())[0]
+        if people:
+            exposure.collect(fac.id, eid, people)
+
     # 2. Recommendation: deterministic rules engine over the stored Evidence rows.
     now = utcnow()
     rec = evaluate(fac, evidence, now)
@@ -56,6 +67,8 @@ def evaluate_facility(db: Session, facility: models.Facility,
         "evidence_ids": rec.evidence_ids, "rationale_source": rec.rationale_source,
     }, facility_id=fac.id, evaluation_id=eid)
     db.commit()
+    if not fac.temporary:
+        message_agent.start_predraft(row.id)  # wording ready before the manager approves
     return row
 
 

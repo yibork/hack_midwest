@@ -7,14 +7,16 @@ from sqlalchemy.orm import Session
 
 from sqlalchemy.exc import IntegrityError
 
-from . import models, pipeline, record, schemas, services
-from .agents import notify_agent
+from . import models, people_api, pipeline, record, schemas, services
 from .db import get_db
 from .models import RecordEvent
-from .notify import NoDecisionError, recipients_for_decision
+from .notify import NoDecisionError, send_notice
+from .roles import manager_only
 from .sources import nws
 
-router = APIRouter(prefix="/api")
+# Manager routes. Role-specific routes (team, access list, my status) are in people_api.py.
+router = APIRouter(prefix="/api", dependencies=[Depends(manager_only)])
+public = APIRouter(prefix="/api")
 
 
 def _get_or_404(db: Session, model, id_: str):
@@ -28,7 +30,7 @@ def _aware(t: datetime | None) -> datetime | None:
     return t.replace(tzinfo=timezone.utc) if t and t.tzinfo is None else t
 
 
-@router.get("/health")
+@public.get("/health")
 def health():
     from .agents.ratelimit import last_call
     from .config import settings
@@ -49,13 +51,13 @@ def health():
 
 # ---------------------------------------------------------------- facilities
 
-@router.get("/facilities", response_model=list[schemas.Facility])
+@public.get("/facilities", response_model=list[schemas.Facility])
 def list_facilities(db: Session = Depends(get_db)):
     return db.scalars(select(models.Facility).where(models.Facility.temporary.is_(False))
                       .order_by(models.Facility.name)).all()
 
 
-@router.get("/facilities/{facility_id}", response_model=schemas.Facility)
+@public.get("/facilities/{facility_id}", response_model=schemas.Facility)
 def get_facility(facility_id: str, db: Session = Depends(get_db)):
     return _get_or_404(db, models.Facility, facility_id)
 
@@ -114,23 +116,34 @@ def get_decision(decision_id: str, db: Session = Depends(get_db)):
     return _get_or_404(db, models.Decision, decision_id)
 
 
-@router.get("/decisions/{decision_id}/recipients", response_model=list[schemas.Recipient])
-def recipients(decision_id: str, db: Session = Depends(get_db)):
+@router.get("/decisions/{decision_id}/notice", response_model=schemas.NoticeDetail)
+def decision_notice(decision_id: str, db: Session = Depends(get_db)):
     decision = _get_or_404(db, models.Decision, decision_id)
-    return recipients_for_decision(db, decision)[2]
+    notice = db.scalar(select(models.Notice).where(models.Notice.decision_id == decision.id))
+    if notice is None:
+        raise HTTPException(404, "no notice for this decision (temporary locations have no roster)")
+    return people_api.notice_detail(db, notice)
 
 
 @router.post("/decisions/{decision_id}/notify", response_model=list[schemas.Notification])
 def notify(decision_id: str, db: Session = Depends(get_db)):
+    """Send the decision's notice (wave 1, wave 2, then FYI). Idempotent."""
+    decision = _get_or_404(db, models.Decision, decision_id)
+    notice = db.scalar(select(models.Notice).where(models.Notice.decision_id == decision.id))
+    if notice is None:
+        raise HTTPException(404, "no notice for this decision")
     try:
-        return notify_agent.notify(db, decision_id)
+        return send_notice(db, notice.id)
     except NoDecisionError as e:
         raise HTTPException(404, str(e))
 
 
 @router.get("/decisions/{decision_id}/notifications", response_model=list[schemas.Notification])
 def notifications(decision_id: str, db: Session = Depends(get_db)):
-    return db.scalars(select(models.Notification).where(models.Notification.decision_id == decision_id)).all()
+    notice = db.scalar(select(models.Notice).where(models.Notice.decision_id == decision_id))
+    if notice is None:
+        return []
+    return db.scalars(select(models.Notification).where(models.Notification.notice_id == notice.id)).all()
 
 
 # ---------------------------------------------------------------- national scan
@@ -182,8 +195,9 @@ def record_at(facility_id: str, timestamp: datetime, db: Session = Depends(get_d
         if detail.decision and detail.decision.decided_at > ts:
             detail.decision = None
         if detail.decision:
+            notice = db.scalar(select(models.Notice).where(models.Notice.decision_id == detail.decision.id))
             notes = db.scalars(select(models.Notification).where(
-                models.Notification.decision_id == detail.decision.id,
-                models.Notification.sent_at <= ts)).all()
+                models.Notification.notice_id == (notice.id if notice else ""),
+                models.Notification.sent_at <= ts)).all() if notice else []
     return schemas.RecordAt(as_of=ts, facility_id=facility_id, recommendation=detail,
                             notifications=[schemas.Notification.model_validate(n) for n in notes])

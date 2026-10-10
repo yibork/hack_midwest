@@ -10,10 +10,10 @@ from strands.hooks import BeforeToolCallEvent
 from strands.models import Model
 
 from app import pipeline
-from app.agents import notify_agent, runtime, weather_agent, writer_agent
+from app.agents import message_agent, runtime, weather_agent, writer_agent
 from app.agents.hooks import BLOCKED_MESSAGE, DispatchGuard
 from app.db import SessionLocal, utcnow
-from app.models import Decision, Facility, Notification, Recommendation, RecordEvent
+from app.models import Decision, Facility, Notice, Notification, Recommendation, RecordEvent
 from app.schemas import DecisionIn, Evidence
 from app.seed import FACILITY_ID, seed
 from app.services import record_decision
@@ -55,6 +55,8 @@ def canned_nws(monkeypatch):
     monkeypatch.setattr(nws, "get_active_alerts_for_point", alerts)
     monkeypatch.setattr(nws, "collect_forecast_evidence", forecast)
     monkeypatch.setattr(nws, "get_point", lambda lat, lon: ({"timeZone": "America/Chicago"}, None))
+    monkeypatch.setattr(nws, "get_active_alerts_for_zone",
+                        lambda zone: ([], _ev("zone_alerts", {"zone": zone, "count": 0, "alerts": []})))
 
 
 class FailingModel(Model):
@@ -154,15 +156,25 @@ def test_dispatch_guard_ignores_non_send_tools():
 
 
 def test_agent_send_without_decision_is_blocked_end_to_end(monkeypatch):
-    """A real Strands agent loop: the model asks to send, the guard cancels, nothing is sent."""
+    """A real Strands agent loop: the model asks to send, the guard cancels, nothing is sent.
+    (No agent has send tools today; the guard stays as a second lock for any that are added.)"""
+    from strands import tool
+
+    sent = []
+
+    @tool
+    def send_push(employee_id: str, message: str) -> str:
+        """Send a push message."""
+        sent.append(employee_id)
+        return "sent"
+
     model = ScriptedModel([[("send_push", {"employee_id": "emp-001", "message": "Avery: closed"})], "done"])
     use_model(monkeypatch, model)
-    agent = runtime.make_agent("notify_agent", "test", [notify_agent.send_push, notify_agent.send_email])
+    agent = runtime.make_agent("guard_test_agent", "test", [send_push])
     state = runtime.new_state(evaluation_id="guard-e2e", facility_id=FACILITY_ID, decision_id="nope")
-    state.update(recipients={}, posture="closure")
     before = len(events("dispatch_blocked"))
     runtime.invoke(agent, "send", state, timeout=10)
-    assert len(events("dispatch_blocked")) == before + 1
+    assert len(events("dispatch_blocked")) == before + 1 and sent == []
     with SessionLocal() as s:
         ends = s.scalars(select(RecordEvent).where(RecordEvent.evaluation_id == "guard-e2e",
                                                    RecordEvent.event_type == "agent.tool_call_end")).all()
@@ -245,33 +257,58 @@ def test_pipeline_without_llm_config_uses_template(canned_nws):
     assert rec.rationale_source == "template"
 
 
-def test_notify_falls_back_to_templates_when_model_unreachable(monkeypatch, canned_nws):
-    _, d = make_decision()
-    use_model(monkeypatch, FailingModel())
-    with SessionLocal() as db:
-        notes = notify_agent.notify(db, d.id)
-    assert len(notes) == 30
-    assert all(n.message for n in notes if n.included)
-    sent = [e for e in events("notification.sent") if e.payload["decision_id"] == d.id]
-    assert sent and all(e.payload["drafted_by"] == "template" for e in sent)
-
-
-def test_notify_agent_sends_only_to_included_with_decision(monkeypatch, canned_nws):
-    """Scripted agent sends one good message, one to an excluded employee, then stops.
-    The good one is sent as drafted; the excluded one is refused; the rest get templates."""
-    _, d = make_decision()
-    with SessionLocal() as db:
-        _, _, recipients = notify_agent.recipients_for_decision(db, db.get(Decision, d.id))
-    inc = next(r for r in recipients if r.included and r.channel == "push" and r.language == "en")
-    exc = next(r for r in recipients if not r.included)
-    msg = f"{inc.name.split()[0]}: this applies to you. The office is closed today. Do not report."
-    model = ScriptedModel([[("send_push", {"employee_id": inc.employee_id, "message": msg}),
-                            ("send_push", {"employee_id": exc.employee_id, "message": "hi"})], "done"])
-    use_model(monkeypatch, model)
-    with SessionLocal() as db:
-        notes = {n.employee_id: n for n in notify_agent.notify(db, d.id)}
-    assert notes[inc.employee_id].message == msg
-    assert notes[exc.employee_id].included is False and notes[exc.employee_id].sent_at is None
+def _notice_rows(decision_id):
     with SessionLocal() as s:
-        n_rows = s.scalars(select(Notification).where(Notification.decision_id == d.id)).all()
-    assert len(n_rows) == 30  # exactly one per considered employee
+        notice = s.scalar(select(Notice).where(Notice.decision_id == decision_id))
+        return notice, s.scalars(select(Notification).where(Notification.notice_id == notice.id)).all()
+
+
+def test_messages_fall_back_to_templates_when_model_unreachable(monkeypatch, canned_nws):
+    use_model(monkeypatch, FailingModel())
+    _, d = make_decision()  # override -> the message agent is allowed to draft, and fails
+    _, rows = _notice_rows(d.id)
+    personal = [n for n in rows if n.included and n.message_type in ("action_required", "fyi")]
+    assert personal and all(n.message and n.drafted_by == "template" for n in personal)
+    assert any(e.payload["agent"] == "message_agent" for e in events("agent_unavailable"))
+
+
+def test_message_agent_drafts_all_groups_in_one_call(monkeypatch, canned_nws):
+    """One model call returns templates per group. Good drafts are used for every person in the
+    group; a draft without {instruction}, or one inventing a time, falls back to the template."""
+    from app.notify.notices import plan_for
+
+    with SessionLocal() as db:
+        rec = pipeline.evaluate_facility(db, db.get(Facility, FACILITY_ID))
+        plan = plan_for(db, db.get(Facility, FACILITY_ID), rec, "closure")
+    groups = {}
+    for p in plan.planned:
+        if p.included and p.facts and p.facts.lang == "en":
+            groups.setdefault(p.facts.instruction, p.group_key)
+    good_key = groups["office closed, telework"]
+    bad_key = groups["office closed, follow agency leave policy"]
+    timed_key = groups["report as normal and acknowledge"]
+    drafts = {"groups": [
+        {"key": good_key, "subject": "{facility} closed {date}",
+         "body": "Hello {name}. {facility} is closed on {date} due to weather. This applies to you because {why}. "
+                 "Please {instruction}. Building: {access}."},
+        {"key": bad_key, "subject": "Closed", "body": "Hi {name}, the office is closed. Building: {access}."},
+        {"key": timed_key, "subject": "Report", "body": "{name}: {instruction} by 06:45. Building: {access}. {ack_line}"},
+    ]}
+    model = ScriptedModel([[("NoticeDrafts", drafts)], "done"])
+    use_model(monkeypatch, model)
+    calls_before = len([e for e in events("agent.model_call_start") if e.payload.get("agent") == "message_agent"])
+    stats = message_agent.fill_messages(plan, allow_llm=True, evaluation_id=rec.evaluation_id,
+                                        facility_id=FACILITY_ID, budget_key="test-drafts")
+    calls = [e for e in events("agent.model_call_start") if e.payload.get("agent") == "message_agent"]
+    assert stats["drafted"] == 2  # bad_key dropped: no {instruction} placeholder
+    by_key = {}
+    for p in plan.planned:
+        if p.included and p.facts:
+            by_key.setdefault(p.group_key, set()).add(p.drafted_by)
+    assert by_key[good_key] == {"agent"}
+    assert by_key[bad_key] == {"template"}
+    assert by_key[timed_key] == {"template"}  # 06:45 isn't a computed time
+    agent_msg = next(p for p in plan.planned if p.group_key == good_key)
+    assert "office closed, telework" in agent_msg.message and agent_msg.employee.name.split()[0] in agent_msg.message
+    assert any("06:45" in r["reason"] for r in stats["rejected"])
+    assert len(calls) - calls_before == 1  # ONE model call for the whole notice

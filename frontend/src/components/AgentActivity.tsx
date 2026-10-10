@@ -5,7 +5,7 @@ import { ErrorBox, fmtTime } from "./ui";
 const AGENT_LABEL: Record<string, string> = {
   weather_agent: "Weather agent",
   writer_agent: "Writer agent",
-  notify_agent: "Notify agent",
+  message_agent: "Message agent",
 };
 
 /** Live feed of one evaluation's agent activity. Polls every second while `live` is true. */
@@ -125,14 +125,33 @@ function describe(e: RecordEvent): Line | null {
       return { ...base, title: `Decision: ${p.action} by ${p.manager_name} → ${p.final_posture}`, tone: "engine" };
     case "dispatch_blocked":
       return { ...base, title: "Dispatch blocked: no approval", detail: `${p.tool} cancelled`, tone: "block" };
+    case "notice.created":
+      return {
+        ...base, title: `Notice v${p.version} prepared (${p.kind})`,
+        detail: `${p.to_send} to send · ${p.unchanged} unchanged · ${p.decision_clock?.label ?? ""}`, tone: "engine",
+      };
+    case "messages.drafted":
+      return {
+        ...base, title: `Messages: ${p.agent_messages} by message agent, ${p.template_messages} template`,
+        detail: `${p.groups} groups · ${p.drafted} drafted now · ${p.from_cache} reused${p.rejected?.length ? ` · ${p.rejected.length} rejected` : ""}`,
+        tone: p.rejected?.length ? "warn" : "agent",
+      };
     case "notification.sent":
       return {
-        ...base, title: `Sent to ${p.name} via ${p.channel}`,
-        detail: `${p.drafted_by === "notify_agent" ? "drafted by notify agent" : "template"} · ${p.delivered ? "delivered" : "not delivered"}`,
+        ...base, title: `Sent to ${p.name} (wave ${p.wave}, ${String(p.message_type).replace("_", " ")})`,
+        detail: Object.entries(p.channels ?? {}).map(([ch, r]) => `${ch}${(r as { fallback?: boolean }).fallback ? " (fallback)" : ""}: ${(r as { ok: boolean }).ok ? "ok" : (r as { error?: string }).error}`).join(" · "),
         tone: "data",
       };
-    case "notification.skipped":
-      return null;
+    case "notice.sent":
+      return { ...base, title: `Notice sent: ${p.sent} messages`, detail: `${p.not_sent_unchanged} unchanged, not resent`, tone: "engine" };
+    case "call_in.sent":
+      return { ...base, title: `Call-in: ${p.name} for ${p.function}`, detail: `by ${p.manager_name} · ${p.coverage_before}`, tone: "engine" };
+    case "ack.received":
+      return { ...base, title: "Acknowledged", detail: `${p.seconds_after_send ?? "?"} s after send`, tone: "data" };
+    case "ack.reminder_sent":
+      return { ...base, title: "Ack reminder sent", tone: "warn" };
+    case "ack.escalated":
+      return { ...base, title: `No ack: escalated (level ${p.level})`, tone: "block" };
     default:
       return { ...base, title: e.event_type, tone: "muted" };
   }

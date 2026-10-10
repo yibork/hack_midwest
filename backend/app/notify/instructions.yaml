@@ -1,0 +1,64 @@
+# Duty instructions by posture x designation. Deterministic: the LLM never changes these, it
+# only writes the words around them. Variables: {report_time}, {dismissal_time}, {delay_hours},
+# {facility_name}, {facility_report_time}, {function_name}, {posture_label}, {time}.
+version: "instructions v1"
+citation: "facility policy v1, aligned with OPM dismissal and closure categories (TODO: verify wording)"
+
+defaults:
+  delay_hours: 2                        # delayed arrival: report this many hours after shift start
+  early_dismissal_hours_before_close: 2 # early dismissal time = close time - this
+  mobility_dismissal_minutes_earlier: 60
+  notify_lead_minutes: 30               # notify_by = shift start - commute - this (delays, closures)
+  dismissal_notify_lead_minutes: 45     # notify_by = dismissal time - this (early dismissal)
+
+posture_label:
+  normal: {en: "normal operations", es: "operación normal"}
+  delayed_arrival: {en: "delayed arrival", es: "llegada retrasada"}
+  early_dismissal: {en: "early dismissal", es: "salida anticipada"}
+  telework: {en: "telework", es: "teletrabajo"}
+  closure: {en: "closure", es: "cierre"}
+
+duty:
+  normal:
+    any: {en: "no change: work your normal schedule", es: "sin cambios: siga su horario normal", onsite: true}
+  delayed_arrival:
+    telework_ready: {en: "report by {report_time} or telework", es: "preséntese a más tardar a las {report_time} o trabaje a distancia", onsite: true}
+    non_telework: {en: "report by {report_time}", es: "preséntese a más tardar a las {report_time}", onsite: true}
+    emergency: {en: "report at your normal time unless told otherwise", es: "preséntese a su hora habitual salvo indicación contraria", onsite: true}
+  early_dismissal:
+    telework_ready: {en: "leave by {dismissal_time}", es: "salga a más tardar a las {dismissal_time}", onsite: true}
+    non_telework: {en: "leave by {dismissal_time}", es: "salga a más tardar a las {dismissal_time}", onsite: true}
+    emergency: {en: "remain on duty unless told otherwise", es: "permanezca en servicio salvo indicación contraria", onsite: true}
+  telework:
+    telework_ready: {en: "telework today", es: "trabaje a distancia hoy", onsite: false}
+    non_telework: {en: "report, or request unscheduled leave", es: "preséntese o solicite licencia no programada", onsite: false}
+    emergency: {en: "report as normal", es: "preséntese como de costumbre", onsite: true}
+  closure:
+    telework_ready: {en: "office closed, telework", es: "oficina cerrada, trabaje a distancia", onsite: false}
+    non_telework: {en: "office closed, follow agency leave policy", es: "oficina cerrada, siga la política de licencias de la agencia", onsite: false}
+    emergency: {en: "report as normal and acknowledge", es: "preséntese como de costumbre y confirme", onsite: true}
+
+# Appended to a facility_ops person's duty instruction.
+facility_ops_actions:
+  delayed_arrival: {en: "have the building ready for the delayed opening at {facility_report_time}", es: "prepare el edificio para la apertura retrasada a las {facility_report_time}"}
+  early_dismissal: {en: "secure the building after {dismissal_time}", es: "asegure el edificio después de las {dismissal_time}"}
+  telework: {en: "keep the building open with reduced staffing", es: "mantenga el edificio abierto con personal reducido"}
+  closure: {en: "secure the building and post closure notices", es: "asegure el edificio y coloque avisos de cierre"}
+
+# Contractors get building status only, never duty instructions.
+contractor:
+  allowed: {en: "building open to you as usual", es: "edificio abierto para usted como de costumbre"}
+  allowed_with_escort: {en: "building open to you with an escort", es: "edificio abierto para usted con escolta"}
+  allowed_after: {en: "building opens to you at {time}", es: "el edificio abre para usted a las {time}"}
+  allowed_until: {en: "building open to you until {time}", es: "edificio abierto para usted hasta las {time}"}
+  denied: {en: "building closed to you today", es: "edificio cerrado para usted hoy"}
+
+text:
+  telework_scheduled: {en: "no change for you: keep teleworking", es: "sin cambios para usted: siga trabajando a distancia"}
+  not_scheduled: {en: "no action needed: you are not scheduled today", es: "no necesita hacer nada: no tiene turno hoy"}
+  shift_not_affected: {en: "no change: your shift is outside the {posture_label} window", es: "sin cambios: su turno está fuera del horario de {posture_label}"}
+  exposure_fyi: {en: "no change for you; your supervisor has been told that weather may affect your commute", es: "sin cambios para usted; su supervisor sabe que el clima puede afectar su trayecto"}
+  all_clear: {en: "all clear: the earlier notice no longer applies to you", es: "todo despejado: el aviso anterior ya no aplica para usted"}
+  call_in: {en: "report to {facility_name} for {function_name} coverage by {report_time} and acknowledge", es: "preséntese en {facility_name} para cubrir {function_name} a más tardar a las {report_time} y confirme"}
+  exposure_suggestion: {en: "consider offering unscheduled telework/leave per agency policy", es: "considere ofrecer teletrabajo o licencia no programada según la política de la agencia"}
+  detail_out: {en: "on detail to {facility_name} until {date}", es: "en asignación temporal en {facility_name} hasta el {date}"}

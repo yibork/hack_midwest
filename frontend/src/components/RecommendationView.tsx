@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import type { Evidence, RecommendationDetail } from "../api";
 import DecisionClock from "./DecisionClock";
+import { PeopleStrip } from "./People";
 import { Button, Card, ConfidenceBadge, PostureBadge, StatusBadge, fmtDateTime } from "./ui";
 
 /** The full recommendation: posture, clock, triggers, confidence, what would change, rationale, evidence. */
@@ -32,10 +33,18 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
             )}
           </div>
           <div className="flex flex-col items-start gap-3 md:items-end">
-            <DecisionClock decideBy={rec.decide_by} timezone={tz} />
+            <DecisionClock decideBy={rec.decide_by} timezone={tz} label={rec.people?.clock.label} />
             {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
           </div>
         </div>
+        {rec.people && (
+          <div className="mt-4 border-t border-slate-200 pt-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              People and staffing if this posture is approved
+            </div>
+            <PeopleStrip people={rec.people} />
+          </div>
+        )}
       </Card>
 
       <Card title={`Triggers (${rec.triggers.length})`}>

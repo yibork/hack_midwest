@@ -1,26 +1,71 @@
+import asyncio
+import html
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
-from .api import router
+from . import people_api
+from .api import public, router
 from .config import settings
+from .db import SessionLocal
+from .notify import acknowledge, escalation
 from .seed import ensure_seeded
 
 logging.basicConfig(level=logging.INFO)
 
 
+log = logging.getLogger(__name__)
+
+
+async def _escalation_loop():
+    """Ack reminders and escalation, once a minute (every 15 s in DEMO_MODE)."""
+    while True:
+        await asyncio.sleep(escalation.loop_interval_seconds())
+        try:
+            await asyncio.to_thread(escalation.tick)
+        except Exception:  # noqa: BLE001 - keep the loop alive; the next pass retries
+            log.exception("escalation tick failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_seeded()  # creates tables, inserts demo data if missing; tolerates an unreachable DB
+    task = asyncio.create_task(_escalation_loop()) if settings.escalation_loop else None
     yield
+    if task:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 app = FastAPI(title="Closure Call", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(public)
 app.include_router(router)
+app.include_router(people_api.router)
+
+
+@app.get("/ack/{notification_id}", include_in_schema=False, response_class=HTMLResponse)
+def ack_page(notification_id: str):
+    """The link in messages. Records acknowledged_at once and shows a confirmation page."""
+    with SessionLocal() as db:
+        n = acknowledge(db, notification_id)
+        if n is None:
+            body, status = "<h1>Link not recognized</h1><p>This acknowledgment link is not valid.</p>", 404
+        else:
+            when = n.acknowledged_at.strftime("%Y-%m-%d %H:%M UTC")
+            body = (f"<h1>Thank you</h1><p>Your acknowledgment was recorded at {html.escape(when)}.</p>"
+                    f"<p>Instruction: <strong>{html.escape(n.duty_instruction)}</strong></p>"
+                    "<p>Gracias. Su confirmación quedó registrada.</p>")
+            status = 200
+    page = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" '
+            'content="width=device-width,initial-scale=1"><title>Closure Call</title></head>'
+            '<body style="font-family:Arial,sans-serif;font-size:20px;max-width:36rem;margin:2rem auto;padding:0 1rem">'
+            f"{body}</body></html>")
+    return HTMLResponse(page, status_code=status)
 
 
 # Serve the built frontend (production). In dev, Vite serves it and proxies /api here.
@@ -29,7 +74,7 @@ dist = settings.frontend_dist.resolve()
 
 @app.get("/{path:path}", include_in_schema=False)
 def spa(path: str):
-    if path == "api" or path.startswith("api/"):
+    if path == "api" or path.startswith(("api/", "ack/")):
         raise HTTPException(404, "Not found")
     index = dist / "index.html"
     if not index.exists():

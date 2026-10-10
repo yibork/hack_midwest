@@ -1,0 +1,36 @@
+# Building access by posture and access level. Values: allowed | denied | allowed_with_escort |
+# allowed_after {report_time} | allowed_until {dismissal_time} | denied_unless_critical (contractors).
+version: "access policy v1"
+citation: "facility policy v1 (TODO: verify against the facility security plan)"
+
+postures:
+  normal:
+    standard: allowed
+    emergency: allowed
+    facility_ops: allowed
+    contractor_badge: allowed
+    escort_required: allowed_with_escort
+  delayed_arrival:
+    emergency: allowed
+    facility_ops: allowed
+    standard: allowed_after {report_time}
+    contractor_badge: allowed_after {report_time}
+    escort_required: allowed_after {report_time}
+  early_dismissal:
+    emergency: allowed
+    facility_ops: allowed
+    standard: allowed_until {dismissal_time}
+    contractor_badge: allowed_until {dismissal_time}
+    escort_required: allowed_until {dismissal_time}
+  telework:
+    standard: allowed
+    emergency: allowed
+    facility_ops: allowed
+    contractor_badge: allowed
+    escort_required: allowed_with_escort
+  closure:
+    emergency: allowed
+    facility_ops: allowed
+    standard: denied
+    contractor_badge: denied_unless_critical
+    escort_required: denied

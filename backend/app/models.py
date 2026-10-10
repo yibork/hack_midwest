@@ -2,7 +2,7 @@
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, Date, Float, ForeignKey, Integer, String, Text, event
+from sqlalchemy import JSON, Boolean, Date, Float, ForeignKey, Integer, String, Text, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base, UTCDateTime, utcnow
@@ -24,27 +24,64 @@ class Facility(Base):
 
 
 class Employee(Base):
+    """A person linked to facilities through Assignments. Accommodation needs are private: only
+    the person's own messages use them; everyone else sees accommodation_on_file."""
+
     __tablename__ = "employees"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
-    # Plain ids, no FK: the "elsewhere" offices are not modeled as facilities yet.
-    assigned_facility_id: Mapped[str] = mapped_column(String(64), index=True)
-    temp_assignment_facility_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    temp_assignment_until: Mapped[date | None] = mapped_column(Date, nullable=True)
-    essential: Mapped[bool] = mapped_column(Boolean, default=False)
-    telework_eligible: Mapped[bool] = mapped_column(Boolean, default=True)
-    accessibility_needs: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    preferred_channel: Mapped[str] = mapped_column(String(10))  # push | email
-    contact: Mapped[str] = mapped_column(String(200))
+    # employee | supervisor | facility_manager | facility_ops | security_desk | contractor
+    role: Mapped[str] = mapped_column(String(20), default="employee")
+    designation: Mapped[str] = mapped_column(String(20))  # emergency | telework_ready | non_telework
+    supervisor_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    functions: Mapped[list[str]] = mapped_column(JSON, default=list)  # critical function codes
+    primary_function: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    accommodation_on_file: Mapped[bool] = mapped_column(Boolean, default=False)
+    accommodation_needs: Mapped[list[str]] = mapped_column(JSON, default=list)
     language: Mapped[str] = mapped_column(String(2), default="en")  # en | es
-    typical_departure_time: Mapped[str] = mapped_column(String(5))  # "HH:MM" local
+    preferred_channels: Mapped[list[str]] = mapped_column(JSON, default=list)  # ordered: push | email
+    ntfy_topic: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    email: Mapped[str] = mapped_column(String(200))
+    home_lat: Mapped[float] = mapped_column(Float)
+    home_lon: Mapped[float] = mapped_column(Float)
+    home_zone: Mapped[str | None] = mapped_column(String(10), nullable=True)  # NWS forecast zone, e.g. MOZ037
+    home_county: Mapped[str | None] = mapped_column(String(10), nullable=True)  # NWS county, e.g. MOC095
+    commute_minutes: Mapped[int] = mapped_column(Integer, default=30)
+    commute_routes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # standard | emergency | facility_ops | contractor_badge | escort_required
+    access_level: Mapped[str] = mapped_column(String(20), default="standard")
 
 
-class DailySchedule(Base):
-    __tablename__ = "daily_schedules"
+class Shift(Base):
+    __tablename__ = "shifts"
     employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), primary_key=True)
     date: Mapped[date] = mapped_column(Date, primary_key=True)
-    status: Mapped[str] = mapped_column(String(10))  # onsite | telework | leave
+    status: Mapped[str] = mapped_column(String(10))  # onsite | telework | leave | day_off
+    shift_start: Mapped[str | None] = mapped_column(String(5), nullable=True)  # "HH:MM" local
+    shift_end: Mapped[str | None] = mapped_column(String(5), nullable=True)  # < start: ends next day
+
+
+class Assignment(Base):
+    """permanent: home facility. detail_in: temporarily working at facility_id (home is elsewhere).
+    detail_out: temporarily away from the permanent facility, working at facility_id."""
+
+    __tablename__ = "assignments"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), index=True)
+    facility_id: Mapped[str] = mapped_column(String(64), index=True)  # plain id: other offices aren't modeled
+    kind: Mapped[str] = mapped_column(String(12))  # permanent | detail_in | detail_out
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+
+class CriticalFunction(Base):
+    __tablename__ = "critical_functions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("facilities.id"), index=True)
+    code: Mapped[str] = mapped_column(String(40))  # animal_care | lab_freezer_monitoring | security | it_ops
+    name: Mapped[str] = mapped_column(String(100))
+    min_onsite: Mapped[dict[str, int]] = mapped_column(JSON, default=dict)  # posture -> people
+    notes: Mapped[str] = mapped_column(Text, default="")
 
 
 class Evidence(Base):
@@ -52,7 +89,7 @@ class Evidence(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     facility_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     evaluation_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    source: Mapped[str] = mapped_column(String(16))  # nws | nwps | modot | roster
+    source: Mapped[str] = mapped_column(String(16))  # nws | nwps | modot | roster | demo
     kind: Mapped[str] = mapped_column(String(64))
     value: Mapped[Any] = mapped_column(JSON)
     units: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -94,20 +131,70 @@ class Decision(Base):
     final_posture: Mapped[str] = mapped_column(String(20))
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     decided_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    # Posture parameters chosen by the manager (defaults in notify/instructions.yaml).
+    delay_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dismissal_time: Mapped[str | None] = mapped_column(String(5), nullable=True)
+
+
+class Notice(Base):
+    """One version of what a facility's people were told for an operating date. A changed decision
+    creates a new Notice that supersedes the previous one."""
+
+    __tablename__ = "notices"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    decision_id: Mapped[str] = mapped_column(ForeignKey("decisions.id"), unique=True)
+    facility_id: Mapped[str] = mapped_column(String(64), index=True)
+    operating_date: Mapped[date] = mapped_column(Date)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    supersedes_notice_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    kind: Mapped[str] = mapped_column(String(10))  # initial | update | all_clear
+    posture: Mapped[str] = mapped_column(String(20))
+    params: Mapped[dict] = mapped_column(JSON, default=dict)  # delay_hours, report_time, dismissal_time
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class Notification(Base):
     __tablename__ = "notifications"
+    __table_args__ = (UniqueConstraint("notice_id", "employee_id", "message_type"),)
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
-    decision_id: Mapped[str] = mapped_column(ForeignKey("decisions.id"), index=True)
-    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"))
-    included: Mapped[bool] = mapped_column(Boolean)
-    reason: Mapped[str] = mapped_column(Text)
-    channel: Mapped[str] = mapped_column(String(10))
+    notice_id: Mapped[str] = mapped_column(ForeignKey("notices.id"), index=True)
+    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), index=True)
+    included: Mapped[bool] = mapped_column(Boolean)  # False: considered, nothing to send
+    reason_codes: Mapped[list[str]] = mapped_column(JSON, default=list)  # public codes only
+    reason_text: Mapped[str] = mapped_column(Text, default="")  # manager only
+    audience_text: Mapped[str] = mapped_column(Text, default="")  # privacy-safe, for supervisors
+    duty_instruction: Mapped[str] = mapped_column(Text, default="")
+    building_access: Mapped[str] = mapped_column(String(40), default="")
+    access_code: Mapped[str] = mapped_column(String(40), default="")
+    notify_by: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    wave: Mapped[str] = mapped_column(String(4), default="fyi")  # "1" | "2" | "fyi"
+    # action_required | fyi | supervisor_summary | access_list | staffing_alert | call_in | none
+    message_type: Mapped[str] = mapped_column(String(20))
+    change: Mapped[str] = mapped_column(String(10), default="initial")  # initial | update | all_clear | unchanged
+    requires_ack: Mapped[bool] = mapped_column(Boolean, default=False)
+    function_code: Mapped[str | None] = mapped_column(String(40), nullable=True)  # call-ins
+    channels_planned: Mapped[list[str]] = mapped_column(JSON, default=list)
+    channel_results: Mapped[dict] = mapped_column(JSON, default=dict)  # channel -> {sent_at, ok, error}
+    subject: Mapped[str | None] = mapped_column(String(200), nullable=True)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    drafted_by: Mapped[str | None] = mapped_column(String(10), nullable=True)  # agent | template
     sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    delivered: Mapped[bool] = mapped_column(Boolean, default=False)
     acknowledged_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    escalation_level: Mapped[int] = mapped_column(Integer, default=0)
+    escalated_to: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class MessageDraft(Base):
+    """Message wording for one group of recipients (same facts), drafted once and reused."""
+
+    __tablename__ = "message_drafts"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)  # hash of the group's facts
+    subject: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(10))  # agent
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class RecordEvent(Base):

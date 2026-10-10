@@ -9,6 +9,12 @@ os.environ["SNAPSHOT_DIR"] = f"{_tmp}/snapshots"
 os.environ["CLOSURECALL_DOTENV"] = "0"
 for name in ("OPENAI_API_KEY", "API_KEY", "OPENAI_BASE_URL", "BASE_URL"):
     os.environ[name] = ""
+# No network for seeding, no background threads/loops racing the tests, stable ack links.
+os.environ["RESOLVE_HOME_ZONES"] = "0"
+os.environ["PREDRAFT"] = "0"
+os.environ["ESCALATION_LOOP"] = "0"
+os.environ["DEMO_MODE"] = "0"
+os.environ["PUBLIC_BASE_URL"] = "http://closurecall.test"
 os.environ["NTFY_TOPIC"] = ""
 os.environ["RESEND_API_KEY"] = ""
 

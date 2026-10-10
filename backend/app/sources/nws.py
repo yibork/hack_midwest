@@ -175,6 +175,8 @@ def get_point(lat: float, lon: float):
             "office": p.get("gridId"),
             "city": (p.get("relativeLocation") or {}).get("properties", {}).get("city"),
             "state": (p.get("relativeLocation") or {}).get("properties", {}).get("state"),
+            "forecastZone": (p.get("forecastZone") or "").rsplit("/", 1)[-1] or None,
+            "county": (p.get("county") or "").rsplit("/", 1)[-1] or None,
         }
         return info, info
 
@@ -191,6 +193,18 @@ def get_active_alerts_for_point(lat: float, lon: float):
 
     return _call("active_alerts", f"{BASE}/alerts/active", {"point": f"{lat:.4f},{lon:.4f}"}, parse,
                  note="Active NWS watches, warnings and advisories whose area covers the facility.",
+                 source_time_key="updated", valid_for=timedelta(minutes=15))
+
+
+def get_active_alerts_for_zone(zone: str):
+    """-> (list of parsed alerts, Evidence) for one NWS forecast zone or county code (e.g. MOZ037,
+    MOC095). Cached 2 minutes like every NWS call; callers query each unique zone once."""
+    def parse(data):
+        alerts = [parse_alert(f) for f in data.get("features", [])]
+        return alerts, {"zone": zone, "count": len(alerts), "alerts": alerts}
+
+    return _call("zone_alerts", f"{BASE}/alerts/active", {"zone": zone}, parse,
+                 note=f"Active NWS alerts for zone {zone} (employee home areas).",
                  source_time_key="updated", valid_for=timedelta(minutes=15))
 
 

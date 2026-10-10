@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { POSTURES, api, type Decision, type Notification, type Posture, type Recipient, type RecommendationDetail } from "../api";
+import { POSTURES, api, type Decision, type Posture, type RecommendationDetail } from "../api";
 import AgentActivity from "../components/AgentActivity";
+import NoticePanel from "../components/NoticePanel";
+import { PeopleStrip } from "../components/People";
 import { Button, Card, ConfidenceBadge, ErrorBox, Loading, PostureBadge, fmtDateTime, postureLabel, useAsync } from "../components/ui";
-
-type Filter = "all" | "included" | "excluded" | "essential";
 
 export default function DecidePage() {
   const [params] = useSearchParams();
@@ -51,6 +51,7 @@ function DecideFlow({ rec }: { rec: RecommendationDetail }) {
             </Link>
           </div>
           <p className="mt-3 text-sm text-slate-700">{rec.rationale}</p>
+          {rec.people && <div className="mt-3"><PeopleStrip people={rec.people} /></div>}
         </Card>
 
         {decision ? (
@@ -61,12 +62,18 @@ function DecideFlow({ rec }: { rec: RecommendationDetail }) {
               <PostureBadge posture={decision.final_posture} />
             </div>
             {decision.reason && <p className="mt-2 italic">“{decision.reason}”</p>}
+            {(decision.delay_hours || decision.dismissal_time) && (
+              <p className="mt-1 text-sm text-slate-600">
+                {decision.delay_hours ? `Delay: ${decision.delay_hours} h after each shift start` : ""}
+                {decision.dismissal_time ? `Dismissal: ${decision.dismissal_time}` : ""}
+              </p>
+            )}
           </Card>
         ) : (
           <DecisionForm rec={rec} onDecided={setDecision} />
         )}
 
-        {decision && <Recipients decision={decision} onSending={setSending} />}
+        {decision && !rec.facility.temporary && <NoticePanel decision={decision} tz={tz} onSending={setSending} />}
       </div>
       <AgentActivity evaluationId={rec.evaluation_id} live={sending} />
     </div>
@@ -78,7 +85,10 @@ function DecisionForm({ rec, onDecided }: { rec: RecommendationDetail; onDecided
   const [action, setAction] = useState<"approve" | "override">("approve");
   const [finalPosture, setFinalPosture] = useState<Posture>(rec.posture);
   const [reason, setReason] = useState("");
+  const [delayHours, setDelayHours] = useState(2);
+  const [dismissal, setDismissal] = useState("14:00");
   const [busy, setBusy] = useState(false);
+  const effective = action === "approve" ? rec.posture : finalPosture;
   const [error, setError] = useState<string | null>(null);
 
   const overrideInvalid = action === "override" && (!reason.trim() || finalPosture === rec.posture);
@@ -89,9 +99,11 @@ function DecisionForm({ rec, onDecided }: { rec: RecommendationDetail; onDecided
     setBusy(true);
     setError(null);
     try {
+      const params = effective === "delayed_arrival" ? { delay_hours: delayHours }
+        : effective === "early_dismissal" ? { dismissal_time: dismissal } : {};
       onDecided(await api.decide(rec.id, action === "approve"
-        ? { manager_name: manager, action }
-        : { manager_name: manager, action, final_posture: finalPosture, reason }));
+        ? { manager_name: manager, action, ...params }
+        : { manager_name: manager, action, final_posture: finalPosture, reason, ...params }));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -133,141 +145,26 @@ function DecisionForm({ rec, onDecided }: { rec: RecommendationDetail; onDecided
             </label>
           </div>
         )}
+        {effective === "delayed_arrival" && (
+          <label className="block">
+            <span className="text-sm font-semibold">Delay (hours after each person's shift start)</span>
+            <select className="mt-1 block rounded border border-slate-300 bg-white px-3 py-2" value={delayHours}
+                    onChange={(e) => setDelayHours(Number(e.target.value))}>
+              {[1, 2, 3, 4].map((h) => <option key={h} value={h}>{h} hour{h > 1 ? "s" : ""}</option>)}
+            </select>
+          </label>
+        )}
+        {effective === "early_dismissal" && (
+          <label className="block">
+            <span className="text-sm font-semibold">Dismissal time ({rec.facility.timezone})</span>
+            <input type="time" className="mt-1 block rounded border border-slate-300 px-3 py-2" value={dismissal}
+                   onChange={(e) => setDismissal(e.target.value)} required />
+          </label>
+        )}
         {error && <ErrorBox error={error} />}
+        <p className="text-xs text-slate-500">Recording the decision prepares every message. Nothing is sent until you press Send.</p>
         <Button type="submit" disabled={!canSubmit}>{busy ? "Recording…" : "Record decision"}</Button>
       </form>
     </Card>
-  );
-}
-
-function Recipients({ decision, onSending }: { decision: Decision; onSending: (s: boolean) => void }) {
-  const recipients = useAsync(() => api.recipients(decision.id), [decision.id]);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [filter, setFilter] = useState<Filter>("all");
-  const [sending, setSending] = useState(false);
-  const [sendError, setSendError] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.notifications(decision.id).then(setNotifications).catch(() => {});
-  }, [decision.id]);
-
-  const byEmployee = useMemo(() => new Map(notifications.map((n) => [n.employee_id, n])), [notifications]);
-  const list = recipients.data ?? [];
-  const counts: Record<Filter, number> = {
-    all: list.length,
-    included: list.filter((r) => r.included).length,
-    excluded: list.filter((r) => !r.included).length,
-    essential: list.filter((r) => r.essential).length,
-  };
-  const shown = list.filter((r) => filter === "all" || (filter === "included" ? r.included : filter === "excluded" ? !r.included : r.essential));
-  const sent = notifications.length > 0;
-
-  async function send() {
-    setSending(true);
-    onSending(true);
-    setSendError(null);
-    try {
-      setNotifications(await api.notify(decision.id));
-    } catch (e) {
-      setSendError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSending(false);
-      onSending(false);
-    }
-  }
-
-  return (
-    <Card
-      title="3 · Recipients"
-      actions={
-        <Button onClick={send} disabled={sending || sent || counts.included === 0} variant={decision.final_posture === "closure" ? "danger" : "primary"}>
-          {sent ? "Notifications sent" : sending ? "Sending…" : `Send notifications (${counts.included})`}
-        </Button>
-      }
-    >
-      {recipients.loading && <Loading />}
-      {recipients.error && <ErrorBox error={recipients.error} onRetry={recipients.reload} />}
-      {sendError && <ErrorBox error={sendError} />}
-      {sent && (
-        <p className="mb-3 rounded bg-slate-100 px-3 py-2 text-sm">
-          Sent {fmtDateTime(notifications.find((n) => n.sent_at)?.sent_at)} ·{" "}
-          {notifications.filter((n) => n.delivered).length} delivered,{" "}
-          {notifications.filter((n) => n.included && !n.delivered).length} not delivered (channel not configured or failed; see server log)
-        </p>
-      )}
-      <div className="mb-3 flex flex-wrap gap-1">
-        {(Object.keys(counts) as Filter[]).map((f) => (
-          <button key={f} onClick={() => setFilter(f)}
-                  className={`rounded-full px-3 py-1 text-sm ${filter === f ? "bg-slate-800 text-white" : "bg-slate-100 hover:bg-slate-200"}`}>
-            {f} ({counts[f]})
-          </button>
-        ))}
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-left text-slate-500">
-            <tr>
-              <th className="py-1 pr-3">Employee</th>
-              <th className="py-1 pr-3">Status</th>
-              <th className="py-1 pr-3">Reason</th>
-              <th className="py-1 pr-3">Channel</th>
-              <th className="py-1 pr-3">Message</th>
-              {sent && <th className="py-1">Delivery</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((r) => <RecipientRow key={r.employee_id} r={r} n={byEmployee.get(r.employee_id)} sent={sent} />)}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
-}
-
-/** Before sending: the template draft. After: the message actually sent (agent-written or template). */
-function MessagePreview({ message, sent }: { message: string | null; sent: boolean }) {
-  if (!message) return <>—</>;
-  const lines = message.split("\n");
-  const preview = (lines.length > 1 ? lines[1] : lines[0]).slice(0, 60);
-  return (
-    <details>
-      <summary className="cursor-pointer text-slate-700">
-        {sent && <span className="mr-1 rounded bg-slate-100 px-1 text-xs">sent</span>}
-        {preview}…
-      </summary>
-      <pre className="mt-1 whitespace-pre-wrap rounded bg-slate-50 p-2 font-sans text-xs">{message}</pre>
-    </details>
-  );
-}
-
-function RecipientRow({ r, n, sent }: { r: Recipient; n?: Notification; sent: boolean }) {
-  return (
-    <tr className={`border-t border-slate-100 align-top ${r.included ? "" : "text-slate-500"}`}>
-      <td className="py-2 pr-3">
-        <div className="font-semibold">{r.name}</div>
-        <div className="flex flex-wrap gap-1 text-xs">
-          {r.essential && <span className="rounded bg-purple-100 px-1 text-purple-800">essential</span>}
-          {r.early_notice && <span className="rounded bg-sky-100 px-1 text-sky-800">early notice</span>}
-          {r.language === "es" && <span className="rounded bg-slate-100 px-1">ES</span>}
-          <span className="text-slate-500">departs {r.typical_departure_time}</span>
-        </div>
-      </td>
-      <td className="py-2 pr-3">
-        <span className={`rounded px-2 py-0.5 text-xs font-bold ${r.included ? "bg-green-100 text-green-800" : "bg-slate-200 text-slate-600"}`}>
-          {r.included ? "INCLUDED" : "EXCLUDED"}
-        </span>
-      </td>
-      <td className="py-2 pr-3">{r.reason}</td>
-      <td className="py-2 pr-3 whitespace-nowrap">{r.channel}<div className="text-xs text-slate-500">{r.contact}</div></td>
-      <td className="max-w-md py-2 pr-3">
-        <MessagePreview message={n?.message ?? r.message} sent={!!n?.message} />
-      </td>
-      {sent && (
-        <td className="py-2 whitespace-nowrap">
-          {!r.included ? "—" : n?.delivered ? <span className="font-semibold text-green-700">✓ delivered</span>
-            : <span className="font-semibold text-amber-700">✗ not delivered</span>}
-        </td>
-      )}
-    </tr>
   );
 }

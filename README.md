@@ -8,7 +8,10 @@ approve or override, notify the right employees, and keep a replayable decision 
 
 **Core principle:** agents gather evidence and write explanations; a deterministic rules engine
 (plain Python, no LLM) produces the recommendation; a human approves; nothing is sent without an
-approval record. If the LLM is unreachable, the app falls back to deterministic code.
+approval record. Deterministic code also decides who is affected, what each person must do, who may
+enter the building and who is told; the LLM only words the messages. Every per-person decision
+carries machine-readable reason codes plus a human-readable reason. If the LLM is unreachable, the
+app falls back to deterministic code.
 
 ```
 pipeline.evaluate_facility (one evaluation_id)
@@ -16,8 +19,10 @@ pipeline.evaluate_facility (one evaluation_id)
        └─ relevance notes / ambiguity flags only
   rules/engine.py:evaluate(facility, Evidence rows)   pure, deterministic ──► posture
   writer_agent ──► rationale, validated (else template)
-manager approves / overrides ──► Decision
-notify_agent ──send_push/send_email──► DispatchGuard + send_one() (Decision required)
+  notify/exposure.py ──► one /alerts/active?zone= per unique employee home zone ──► Evidence
+  message_agent (background) ──► message wording per recipient group, cached
+manager approves / overrides ──► Decision ──► Notice (plan: impact, access, staffing, waves, drafts)
+send ──► wave 1, wave 2, FYI ──► push / email (push fails → email) ──► acks ──► reminders/escalation
 Every step, including every agent model/tool call ──► RecordEvent (append-only)
 ```
 
@@ -208,6 +213,47 @@ docker compose -f compose.prod.yml logs -f caddy    # proxy / TLS
 docker compose -f compose.prod.yml ps               # health status
 ```
 
+## People, access and notifications
+
+Everything here is deterministic and unit-tested. The LLM never decides who is told what.
+
+| Module | Decides |
+|---|---|
+| `notify/impact.py` | Per person, in order, with reason codes: assignment (`DETAIL_OUT`, `DETAIL_IN`), schedule (`LEAVE`, `DAY_OFF`, `TELEWORK_SCHEDULED`), shift overlap (`SHIFT_NOT_AFFECTED`), role (`EMERGENCY_DUTY`, `FACILITY_OPS`, `CONTRACTOR_STATUS_ONLY`, `SUPERVISOR_SUMMARY`, `SECURITY_ACCESS_LIST`, `SCHEDULED_ONSITE`), exposure (`HOME_IN_WARNING_AREA`, `ROUTE_CLOSED`), accommodations (shown only as `ACCOMMODATION_ON_FILE`) |
+| `notify/instructions.yaml` | Duty instruction per posture × designation (+ contractors, facility ops actions), en/es |
+| `access/policy.yaml` | Building access per posture × access level; the security desk's access list |
+| `staffing/coverage.py` | Critical function coverage (`Animal care 1/2 - shortfall`) and ranked backups; never auto-assigns |
+| `notify/delivery.py` | Waves, channels, decision clock (`first: Dana R., early shift 05:00, 40 min commute`) |
+| `notify/plan.py` | Planned notifications, supervisor summaries, access list and staffing alert messages, notice versioning |
+| `notify/notices.py` | Persist, send in waves, push → email fallback, call-ins, acks |
+| `notify/escalation.py` | No ack: reminder at 15 min, supervisor at 30, facility manager at 45 (DEMO_MODE: 1/2/3 min) |
+| `agents/message_agent.py` | Message wording: ONE model call per notice drafts one template per recipient group; personal facts go in by placeholder; every message is validated, else the template |
+
+Key rules:
+- Exposure never sends anyone home. The supervisor gets "consider offering unscheduled telework/leave
+  per agency policy", and the employee gets an FYI that their supervisor has been informed. Exposed
+  emergency staff are flagged in the staffing check instead. Home zones are resolved once at seed time.
+  Each evaluation queries `/alerts/active?zone=` once per unique zone or county.
+- `notify_by` is shift start − commute − 30 min for delays and closures, and dismissal time − 45 min
+  for early dismissal. The decision clock is the earliest `notify_by`, and names the person who drives it.
+- Wave 1: emergency staff, facility ops, accommodation early notice, call-ins, and anyone due within
+  60 minutes. Wave 2: other action-required. FYI goes last, by email only. Before 06:00, push and email
+  are both used.
+- A changed decision creates a new Notice that supersedes the old one. Changed instructions get an
+  "Update: now … (before: …), replacing the HH:MM notice". People no longer affected get an all clear.
+  Identical messages are never resent.
+- Roles (demo switcher, no real auth; headers `X-Role` / `X-Person`): the facility manager sees
+  everything. A supervisor sees their own team only, as `audience_text`. The security desk sees the
+  access list. An employee sees their own status. Accommodation needs never leave the engine:
+  supervisors and managers only see "accommodation on file".
+- `DEMO_MODE=1` shortens the ack timers and enables `/api/demo/simulate`, which injects a clearly
+  marked simulated home-zone warning or road closure for showing exposure on a calm day.
+- Demo personas (ntfy topics, QR codes on the Demo personas page):
+  - `closurecall-demo-emergency`: emergency, animal care
+  - `closurecall-demo-telework`: telework-ready, scheduled onsite
+  - `closurecall-demo-teleworking`: already teleworking, so email only and no push
+  - `closurecall-demo-exposed`: home in Cass County, MO; use the simulated warning for zone `MOZ043`
+
 ## Configuration (root `.env`, see `.env.example`)
 
 | Var | Purpose |
@@ -218,37 +264,48 @@ docker compose -f compose.prod.yml ps               # health status
 | `SITE_DOMAIN` | Production only: domain for Caddy's automatic HTTPS; empty means plain HTTP on :80 |
 | `NWS_USER_AGENT` | Required by api.weather.gov; include a contact |
 | `LLM_REQUESTS_PER_MINUTE`, `LLM_CALLS_PER_EVALUATION` | Defaults 45 / 12 |
-| `AGENT_TIMEOUT_SECONDS`, `NOTIFY_AGENT_TIMEOUT_SECONDS` | Defaults 20 / 120; on timeout the deterministic path takes over |
-| `NTFY_TOPIC` | Push via `https://ntfy.sh/{topic}`; subscribe in the ntfy app to see them |
+| `AGENT_TIMEOUT_SECONDS` | Default 20; on timeout the deterministic path takes over |
+| `NTFY_TOPIC` | Fallback push topic for people without their own `ntfy_topic` |
+| `PUBLIC_BASE_URL` | Base for ack links in messages (default `http://localhost:8000`; set the public URL in production) |
+| `DEMO_MODE` | `1`: ack timers 1/2/3 min, `/api/demo/simulate` enabled |
+| `RESOLVE_HOME_ZONES`, `PREDRAFT`, `ESCALATION_LOOP` | Default `1`; tests set `0` (no network at seed, no background threads) |
 | `RESEND_API_KEY`, `RESEND_FROM` | Email via Resend |
 | `NOTIFY_EMAIL_OVERRIDE` | Demo: send every email to one inbox |
 | `SNAPSHOT_DIR` | Raw NWS responses, default `./snapshots` |
 
-If a channel isn't configured, the message prints to the server console and the notification is
-stored with `delivered=false`.
+If a channel isn't configured, the message prints to the server console and its channel result is
+stored with `ok=false` and the reason.
 
 ## Layout
 
 ```
 backend/app/
   main.py            FastAPI app, /api router, static frontend + SPA fallback
-  api.py             all routes
-  pipeline.py        weather agent -> rules engine -> writer agent, with fallback
+  api.py             manager routes; people_api.py: role-aware routes (team, access list, me, call-ins)
+  roles.py           demo roles (X-Role / X-Person) and per-route role checks
+  pipeline.py        weather agent -> rules engine -> writer agent, with fallback; exposure; predraft
   services.py        evidence storage, decision, recommendation detail
   config.py db.py models.py schemas.py
   sources/nws.py     NWS client: points, alerts (point + national), hourly, grid winds; 2-min cache
   rules/engine.py    evaluate(facility, evidence, now) -> Recommendation  (pure)
   rules/thresholds.yaml   starter rules; every citation is "TODO: verify"
-  agents/            Strands agents, hooks (audit + dispatch guard), model, runtime
-  notify/            recipients.py, messages.py (en/es), channels.py, dispatch()
+  agents/            Strands agents (weather, writer, message), hooks (audit + dispatch guard), model, runtime
+  notify/            impact.py, instructions.yaml, delivery.py, plan.py, notices.py, messages.py (en/es),
+                     exposure.py, escalation.py, channels.py
+  access/            policy.py + policy.yaml (building access)
+  staffing/          coverage.py (critical functions, backups)
   record.py          append-only RecordEvent helpers + snapshot storage
-  seed.py            synthetic facility + roster
-backend/tests/      test_rules.py (engine), test_agents.py (guard, writer validation, fallback)
+  seed.py            synthetic facility, 40 people, shifts, assignments, critical functions
+backend/tests/      test_rules.py (engine), test_agents.py (guard, writer, message agent, fallback),
+                    test_impact.py (every reason code), test_access_staffing_delivery.py,
+                    test_notices.py (versioning, call-ins, escalation, roles, privacy), test_inference.py
 backend/scripts/smoke_llm.py
 frontend/src/
   api.ts             typed client mirroring schemas.py
-  pages/             FacilityPage, DecidePage, NationalPage, RecordPage
-  components/        RecommendationView, DecisionClock, AgentActivity, ui
+  pages/             FacilityPage, DecidePage, TeamPage, SecurityPage, MyStatusPage, PersonasPage,
+                     NationalPage, RecordPage
+  components/        RecommendationView, NoticePanel, People (coverage strip), DecisionClock,
+                     RoleSwitcher/RoleContext, AgentActivity, ui
 ```
 
 ## API (all under `/api`)
@@ -259,11 +316,17 @@ frontend/src/
 | GET | `/facilities`, `/facilities/{id}` | |
 | GET | `/facilities/{id}/latest-recommendation` | `null` if never evaluated |
 | POST | `/facilities/{id}/evaluate` | body `{evaluation_id?}`; weather agent → rules → writer → stored Recommendation |
-| GET | `/recommendations/{id}` | with evidence, decision, `decide_by` |
-| POST | `/recommendations/{id}/decision` | `{manager_name, action, final_posture?, reason?}`; override requires reason; one decision per recommendation |
-| GET | `/decisions/{id}/recipients` | everyone considered, included or not, with reason + drafted message |
-| POST | `/decisions/{id}/notify` | notify agent (template fallback); idempotent |
-| GET | `/decisions/{id}/notifications` | |
+| GET | `/recommendations/{id}` | with evidence, decision, `decide_by`, `people` (coverage, clock, exposed count) |
+| POST | `/recommendations/{id}/decision` | `{manager_name, action, final_posture?, reason?, delay_hours?, dismissal_time?}`; override requires reason; creates the Notice (nothing sent) |
+| GET | `/decisions/{id}/notice`, `/notices/{id}` | notice, every person considered (reason codes, wave, notify_by, channels, access, ack), coverage, clock |
+| POST | `/decisions/{id}/notify` | send: wave 1, wave 2, FYI; idempotent |
+| POST | `/notices/{id}/call-ins` | `{employee_id, function_code, manager_name}`; only ranked backups; sent at once, ack required |
+| GET | `/notices/{id}/access-list`, `/facilities/{id}/access-list` | manager, security desk |
+| GET | `/team` | supervisor: own team board (manager: `?supervisor_id=`) |
+| GET | `/me` · POST `/notifications/{id}/ack` | employee: own status and ack |
+| GET | `/ack/{notification_id}` (no `/api`) | the link in messages: records the ack, confirmation page |
+| GET | `/viewers` | role switcher lists and demo personas (no private fields) |
+| POST | `/demo/simulate` | DEMO_MODE only: `{kind: zone_alert\|road_closure\|clear, zone?, route?}` |
 | GET | `/national-scan` | top 20 active US alerts (marine-only alerts skipped), with centroid |
 | POST | `/evaluate-point` | `{lat, lon, name, evaluation_id?}` → temporary facility (07:30–16:00, NWS time zone) |
 | GET | `/agent-activity?evaluation_id=&since=` | agent/tool/fallback events for an evaluation, in order |
