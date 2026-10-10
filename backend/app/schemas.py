@@ -160,6 +160,8 @@ class Recommendation(ORMModel):
     # How the operating date was chosen: next_operating_day | explicit | demo_workday
     target_mode: str | None = "next_operating_day"
     target_note: str | None = None  # "Mon Oct 12 is a federal holiday (Columbus Day); next workday Tue Oct 13."
+    lead_time_hours: float | None = None  # evaluation time -> start of the target day's commute window
+    rationale_note: str | None = None  # "AI draft" | "AI draft rejected: <reason> - template used" | "LLM unavailable - template used"
 
 
 HHMM = Annotated[str, StringConstraints(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")]
@@ -205,6 +207,7 @@ class RecommendationDetail(Recommendation):
     # Decision clock: earliest notify_by among action-required recipients (see people.clock).
     decide_by: dt.datetime | None = None
     people: "PeopleSummary | None" = None
+    next_reevaluation: dt.datetime | None = None  # next scheduled re-evaluation for this target day
 
 
 class Notice(ORMModel):

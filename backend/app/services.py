@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import models, record, schemas
+from . import models, record, schemas, scheduler
 from .db import SessionLocal, utcnow
 
 
@@ -59,7 +59,16 @@ def recommendation_detail(db: Session, rec: models.Recommendation) -> schemas.Re
         decision=schemas.Decision.model_validate(decision) if decision else None,
         decide_by=people.clock.at if people else None,
         people=people,
+        next_reevaluation=scheduler.next_run(db, rec.facility_id, rec.operating_date),
     )
+
+
+def lead_time_hours(db: Session, rec: models.Recommendation, at) -> float:
+    from .rules.engine import compute_windows, load_policy
+
+    facility = schemas.Facility.model_validate(db.get(models.Facility, rec.facility_id))
+    w = compute_windows(facility, at, load_policy(), rec.operating_date)
+    return round((w.commute_start - at).total_seconds() / 3600, 1)
 
 
 def record_decision(db: Session, rec: models.Recommendation, body: schemas.DecisionIn) -> models.Decision:
@@ -74,6 +83,9 @@ def record_decision(db: Session, rec: models.Recommendation, body: schemas.Decis
         "decision_id": d.id, "recommendation_id": rec.id, "manager_name": d.manager_name,
         "action": d.action, "recommended_posture": rec.posture, "final_posture": d.final_posture,
         "reason": d.reason, "delay_hours": d.delay_hours, "dismissal_time": d.dismissal_time,
+        "operating_date": rec.operating_date,
+        # Hours from the decision to the start of the target day's commute window.
+        "lead_time_hours": lead_time_hours(db, rec, d.decided_at),
     }, facility_id=rec.facility_id, evaluation_id=rec.evaluation_id)
     db.commit()
     facility = db.get(models.Facility, rec.facility_id)

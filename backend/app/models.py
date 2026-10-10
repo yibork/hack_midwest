@@ -125,6 +125,8 @@ class Recommendation(Base):
     policy_version: Mapped[str] = mapped_column(String(64))
     target_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
     target_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lead_time_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rationale_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Decision(Base):
@@ -200,6 +202,21 @@ class MessageDraft(Base):
     body: Mapped[str] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(10))  # agent
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class ScheduledJob(Base):
+    """Automatic re-evaluations: 15:00 the day before the target day and 04:00 on it. They run the
+    deterministic pipeline and call agents only if the result changed."""
+
+    __tablename__ = "scheduled_jobs"
+    key: Mapped[str] = mapped_column(String(120), primary_key=True)  # facility|date|kind
+    facility_id: Mapped[str] = mapped_column(String(64), index=True)
+    operating_date: Mapped[date] = mapped_column(Date)
+    kind: Mapped[str] = mapped_column(String(20))  # day_before_1500 | target_0400
+    run_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    status: Mapped[str] = mapped_column(String(10), default="pending")  # pending | done | skipped | failed
+    ran_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class RecordEvent(Base):

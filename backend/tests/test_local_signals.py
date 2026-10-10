@@ -88,7 +88,7 @@ def test_json_modot_filters_and_parses(web):
     r = ls.fetch(s, now=NOW)
     assert r.status == "ok"
     titles = [i["title"] for i in r.items]
-    assert len(titles) == 3  # commuter lot (CL) and BOONE County dropped
+    assert len(titles) == 4  # commuter lot (CL) and BOONE County dropped
     first = r.items[0]
     assert first["title"] == "IS 35 is CLOSED Northbound due to FLOODING."
     assert first["published_at"].startswith("2026-10-10T10:10")  # "Impact reported at 05:10 AM" (CDT)

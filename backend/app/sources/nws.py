@@ -209,17 +209,19 @@ def get_active_alerts_for_zone(zone: str):
 
 
 def get_hourly_forecast(url: str):
-    """-> (next 24 hourly periods, Evidence). Context for the rationale; no gusts here."""
+    """-> (all hourly periods, ~7 days, Evidence). Context for the rationale; no gusts here.
+    Callers check that the target day's windows are covered (hourly_coverage)."""
     def parse(data):
         periods = [{
             "start": p.get("startTime"),
+            "end": p.get("endTime"),
             "temperature": p.get("temperature"),
             "temperature_unit": p.get("temperatureUnit"),
             "wind_speed": p.get("windSpeed"),
             "wind_direction": p.get("windDirection"),
             "short_forecast": p.get("shortForecast"),
             "precip_pct": (p.get("probabilityOfPrecipitation") or {}).get("value"),
-        } for p in data["properties"]["periods"][:24]]
+        } for p in data["properties"]["periods"]]
         return periods, {"periods": periods}
 
     return _call("hourly_forecast", url, None, parse,
@@ -229,6 +231,36 @@ def get_hourly_forecast(url: str):
 
 
 GRID_HOURS = 168  # the grid forecast covers ~7 days; evaluations may target a later operating day
+
+
+def periods_in(periods: list[dict], start: datetime, end: datetime) -> list[dict]:
+    """Hourly periods overlapping [start, end). startTime/endTime carry their UTC offsets, so this
+    compares absolute instants (no local-date guessing)."""
+    out = []
+    for p in periods:
+        s, e = parse_dt(p.get("start")), parse_dt(p.get("end"))
+        if s is None:
+            continue
+        e = e or s + timedelta(hours=1)
+        if s < end and e > start:
+            out.append(p)
+    return out
+
+
+def hourly_coverage(ev: Evidence, windows: dict[str, tuple[datetime, datetime]]) -> list[str]:
+    """Mark hourly evidence "unknown" if any window has no periods: missing data must not read as
+    calm. Returns the names of the uncovered windows."""
+    if ev.status == "unknown" or not isinstance(ev.value, dict):
+        return list(windows)
+    missing = []
+    for name, (start, end) in windows.items():
+        if not periods_in(ev.value.get("periods", []), start, end):
+            tz = start.tzinfo
+            missing.append(f"{name} window ({start.astimezone(tz):%a %b %d %H:%M}-{end.astimezone(tz):%H:%M} local)")
+    if missing:
+        ev.status = "unknown"
+        ev.value = {**ev.value, "error": "no hourly periods found for " + " and ".join(missing)}
+    return missing
 
 
 def get_grid_data(url: str, now: datetime | None = None):

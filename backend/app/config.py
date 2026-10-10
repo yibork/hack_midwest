@@ -84,6 +84,8 @@ class Settings:
     local_signals: bool = field(default_factory=lambda: _pick("LOCAL_SIGNALS", default="1") != "0")
     # Local agents run in parallel with larger inputs than the weather agent.
     local_agent_timeout: float = field(default_factory=lambda: float(_pick("LOCAL_AGENT_TIMEOUT_SECONDS", default="45")))
+    # Background scheduled re-evaluations (15:00 the day before, 04:00 on the target day).
+    scheduler_loop: bool = field(default_factory=lambda: _pick("SCHEDULER_LOOP", default="1") != "0")
     # Background ack reminder/escalation loop (tests call escalation.tick() directly instead).
     escalation_loop: bool = field(default_factory=lambda: _pick("ESCALATION_LOOP", default="1") != "0")
     # Draft message wording in the background right after each recommendation (tests turn it off).

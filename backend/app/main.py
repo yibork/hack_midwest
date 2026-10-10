@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import people_api
+from . import people_api, scheduler
 from .api import public, router
 from .config import settings
 from .db import SessionLocal
@@ -31,12 +31,26 @@ async def _escalation_loop():
             log.exception("escalation tick failed")
 
 
+async def _scheduler_loop():
+    """Scheduled re-evaluations (app/scheduler.py), checked once a minute."""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            await asyncio.to_thread(scheduler.tick)
+        except Exception:  # noqa: BLE001 - keep the loop alive
+            log.exception("scheduler tick failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_seeded()  # creates tables, inserts demo data if missing; tolerates an unreachable DB
-    task = asyncio.create_task(_escalation_loop()) if settings.escalation_loop else None
+    tasks = []
+    if settings.escalation_loop:
+        tasks.append(asyncio.create_task(_escalation_loop()))
+    if settings.scheduler_loop:
+        tasks.append(asyncio.create_task(_scheduler_loop()))
     yield
-    if task:
+    for task in tasks:
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task

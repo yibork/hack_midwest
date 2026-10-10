@@ -33,6 +33,8 @@ active alerts cover the facility", "Commute-window gusts peak at 18 mph".
 3. Add ambiguity_flags only for genuine uncertainty, e.g. "alert area is adjacent; relevance \
 uncertain", "alert timing unclear", "source unavailable". Usually the list is empty. If \
 commute_window_already_passed is true, having no commute-window gusts is expected: do not flag it.
+4. Missing data is not calm. If hourly_missing lists a window or a status is "unknown", say the data \
+is missing for that window; never write "no notable hazards" or similar for it.
 
 Never recommend a posture (normal, delay, dismissal, telework, closure). Only use numbers that \
 appear in tool results."""
@@ -77,18 +79,18 @@ def fetch_alerts(facility: schemas.Facility, evaluation_id: str) -> dict:
 def fetch_forecast(facility: schemas.Facility, evaluation_id: str, now: datetime | None = None,
                    operating_date: date | None = None) -> dict:
     now = now or utcnow()
-    evidence, point = nws.collect_forecast_evidence(facility.lat, facility.lon, now)
-    store_evidence_now(evidence, facility.id, evaluation_id)
     w = compute_windows(facility, now, load_policy(), operating_date)
+    evidence, point = nws.collect_forecast_evidence(facility.lat, facility.lon, now)
     by_kind = {e.kind: e for e in evidence}
     wind, hourly = by_kind.get("wind_forecast"), by_kind.get("hourly_forecast")
+    # The target day may be days out: its windows must actually be in the hourly forecast.
+    missing = nws.hourly_coverage(hourly, {"commute": (w.commute_start, w.commute_end),
+                                           "departure": (w.departure_start, w.departure_end)}) if hourly else ["all"]
+    store_evidence_now(evidence, facility.id, evaluation_id)
     conditions = []
     if hourly and hourly.status != "unknown":
-        for p in hourly.value.get("periods", []):
-            start = nws.parse_dt(p.get("start"))
-            if start and w.commute_start <= start < w.commute_end:
-                conditions.append({k: p.get(k) for k in ("start", "temperature", "wind_speed", "short_forecast",
-                                                         "precip_pct")})
+        conditions = [{k: p.get(k) for k in ("start", "temperature", "wind_speed", "short_forecast", "precip_pct")}
+                      for p in nws.periods_in(hourly.value.get("periods", []), w.commute_start, w.commute_end)]
     return {
         "evidence": [{"evidence_id": e.id, "kind": e.kind, "status": e.status,
                       "error": e.value.get("error") if e.status == "unknown" else None} for e in evidence],
@@ -101,6 +103,7 @@ def fetch_forecast(facility: schemas.Facility, evaluation_id: str, now: datetime
         "departure_window": f"{w.departure_start:%H:%M}-{w.departure_end:%H:%M}",
         "departure_peak_gust_mph": peak_gust(wind, w.departure_start, w.departure_end),
         "commute_conditions": conditions,
+        "hourly_missing": missing,  # windows with NO hourly data: unknown, not calm
     }
 
 
@@ -171,7 +174,11 @@ def apply_notes(notes: WeatherNotes, facility_id: str, evaluation_id: str) -> in
             row = rows.get(n.evidence_id)
             if row is None:
                 continue  # model invented or mistyped an id; ignore
-            row.relevance_note = n.relevance_note.strip()[:400]
+            if row.status == "unknown":  # missing data: the note states that, whatever the model wrote
+                err = row.value.get("error") if isinstance(row.value, dict) else None
+                row.relevance_note = f"Data missing: {err or 'source unavailable'}. Not treated as calm."
+            else:
+                row.relevance_note = n.relevance_note.strip()[:400]
             row.ambiguity_flags = [f.strip()[:200] for f in n.ambiguity_flags if f.strip()][:5]
             record.append(s, "agent.evidence_note", {
                 "agent": NAME, "evidence_id": row.id, "kind": row.kind, "note": row.relevance_note,

@@ -118,7 +118,8 @@ class FeedResult:
                    "items": self.items},
             retrieved_at=self.retrieved_at, valid_until=self.retrieved_at + timedelta(minutes=s.refresh_minutes),
             url=s.link or s.url, snapshot_hash=self.snapshot_hash,
-            relevance_note=(f"{s.name}: {len(self.items)} item(s) in the last 24 h" if self.status == "ok" else
+            relevance_note=((f"{s.name}: {len(self.items)} active items" if s.current_state
+                             else f"{s.name}: {len(self.items)} item(s) in the last 24 h") if self.status == "ok" else
                             f"{s.name}: {self.status} ({self.error}); this is not evidence of 'no closures'."),
             status="ok" if self.status == "ok" else "unknown",
         )
@@ -235,6 +236,17 @@ def item_id(source_id: str, native: Any) -> str:
     return hashlib.sha256(f"{source_id}|{native}".encode()).hexdigest()[:16]
 
 
+_CATEGORIES = (("flood", r"flood|high water|water over"), ("incident", r"crash|incident|stalled|debris|disabled|fire|spill"),
+               ("construction", r"construction|work zone|roadwork|bridge|maintenance|resurfac|paving|milling"))
+
+
+def categorize(text: str) -> str:
+    for name, pattern in _CATEGORIES:
+        if re.search(pattern, text, re.I):
+            return name
+    return "other"
+
+
 def make_item(src: Source, native: Any, title: str, text: str, link: str | None, published: datetime | None,
               retrieved: datetime, **extra) -> dict:
     title = clean(title)[:200]
@@ -243,7 +255,9 @@ def make_item(src: Source, native: Any, title: str, text: str, link: str | None,
     return {"item_id": item_id(src.id, native or link or title), "source_id": src.id, "title": title,
             "link": link if (link and link.startswith("http")) else (src.link or src.url),
             "published_at": published.astimezone(timezone.utc).isoformat() if published else None,
-            "retrieved_at": retrieved.isoformat(), "excerpt": excerpt[:EXCERPT_CHARS], **extra}
+            "retrieved_at": retrieved.isoformat(), "excerpt": excerpt[:EXCERPT_CHARS], **extra,
+            # When the condition began: its start time if stated, else when it was first reported.
+            "active_since": extra.get("effective_from") or (published.astimezone(timezone.utc).isoformat() if published else None)}
 
 
 # ---------------------------------------------------------------- parsers
@@ -278,6 +292,15 @@ def parse_json_list(src: Source, raw: bytes, retrieved: datetime) -> list[dict]:
             v = dig(row, path)
             if isinstance(v, (int, float)):
                 extra[key] = datetime.fromtimestamp(v / 1000, timezone.utc).isoformat()
+        for pat in cfg.get("effective_patterns", []):
+            m = re.search(pat["regex"], text, re.I)
+            if m and "effective_from" not in extra:
+                start = parse_date(" ".join(m.groups()).title() if "%b" in pat["format"] else " ".join(m.groups()),
+                                   pat["format"])
+                if start:
+                    extra["effective_from"] = start.astimezone(timezone.utc).isoformat()
+        raw_cat = str(dig(row, cfg.get("category_path")) or "") if cfg.get("category_path") else ""
+        extra["category"] = (cfg.get("category_map") or {}).get(raw_cat) or categorize(f"{title} {text}")
         points = []
         for lat_path, lon_path in cfg.get("points", []):
             lat, lon = dig(row, lat_path), dig(row, lon_path)

@@ -84,8 +84,10 @@ export interface Recommendation {
   rationale_source: "agent" | "template";
   evidence_ids: string[];
   policy_version: string;
-  target_mode: "next_operating_day" | "explicit" | "demo_workday" | null;
+  target_mode: "next_operating_day" | "explicit" | "demo_workday" | "scheduled" | null;
   target_note: string | null;
+  lead_time_hours: number | null;
+  rationale_note: string | null; // "AI draft" | "AI draft rejected: <reason> - template used" | "LLM unavailable - template used"
 }
 
 export interface DecisionClock {
@@ -133,6 +135,7 @@ export interface RecommendationDetail extends Recommendation {
   decision: Decision | null;
   decide_by: string | null;
   people: PeopleSummary | null;
+  next_reevaluation: string | null;
 }
 
 /** Default: the next operating day. target_date: an explicit day. demo_workday: DEMO_MODE only. */
@@ -316,6 +319,8 @@ export interface LocalFactValue {
   link: string;
   reported_at: string | null;
   extracted_by: "agent" | "code";
+  category: "construction" | "incident" | "flood" | "other" | null;
+  active_since: string | null;
 }
 
 export interface SourceRow {

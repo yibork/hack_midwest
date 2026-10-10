@@ -40,6 +40,11 @@ sources:
       strip_html: true
       points: [[GEOM.y, GEOM.x]]
       published_regex: "Impact reported at (\\d{1,2}:\\d{2} [AP]M) on (\\d{2}/\\d{2}/\\d{4})"
+      category_path: MT
+      category_map: {WZ: construction, TI: incident, FL: flood}
+      effective_patterns:   # when the condition started (MoDOT text), as opposed to when it was reported
+        - {regex: "scheduled from (\\d{2}-[A-Z]{3}-\\d{4})", format: "%d-%b-%Y"}
+        - {regex: "scheduled on (\\d{2}/\\d{2}/\\d{4}) beginning at (\\d{1,2}:\\d{2} [AP]M)", format: "%m/%d/%Y %I:%M %p"}
       filters:
         - {path: MT, not_in: [CL]}  # commuter lots are not road conditions
         - {path: MSGL, county_suffix: [JACKSON, CLAY, PLATTE, CASS, RAY, LAFAYETTE]}
@@ -91,6 +96,8 @@ sources:
       strip_html: true
       published: StartDateTime
       date_format: "%a %b %d %H:%M:%S %Z %Y"
+      category_path: EventType
+      category_map: {Incident: incident, Scheduled: construction}
       points: [[Latitude, Longitude]]
     robots: "robots.txt 404 (no restrictions). The JSON the KC Scout map loads (POST, empty body); it has coordinates, unlike the IncidentViewer.aspx page (used before 2026-10-11)."
 

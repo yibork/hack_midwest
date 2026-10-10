@@ -29,6 +29,10 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
               <span>Evaluated {fmtDateTime(rec.evaluated_at, tz)}</span>
               <span className="font-mono text-xs">policy {rec.policy_version}</span>
             </div>
+            <div className="mt-1 flex flex-wrap gap-x-4 text-sm text-slate-600">
+              {rec.lead_time_hours != null && <span>Forecast lead time: {Math.round(rec.lead_time_hours)} h to the commute window</span>}
+              <span>Next scheduled re-evaluation: {rec.next_reevaluation ? fmtDateTime(rec.next_reevaluation, tz) : "none scheduled"}</span>
+            </div>
             {rec.decision && (
               <div className="mt-3 rounded bg-slate-100 px-3 py-2 text-sm">
                 <span className="font-semibold">{rec.decision.action === "approve" ? "Approved" : "Overridden"}</span> by{" "}
@@ -107,15 +111,9 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
         title={
           <span className="flex flex-wrap items-center gap-2">
             Rationale
-            {rec.rationale_source === "agent" ? (
-              <span className="rounded bg-indigo-100 px-2 py-0.5 text-xs font-semibold normal-case tracking-normal text-indigo-800">
-                Writer agent · validated
-              </span>
-            ) : (
-              <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold normal-case tracking-normal text-amber-900">
-                LLM offline — template rationale
-              </span>
-            )}
+            <span className={`rounded px-2 py-0.5 text-xs font-semibold normal-case tracking-normal ${rec.rationale_source === "agent" ? "bg-indigo-100 text-indigo-800" : "bg-amber-100 text-amber-900"}`}>
+              {rec.rationale_note ?? (rec.rationale_source === "agent" ? "AI draft" : "Template")}
+            </span>
           </span>
         }
         actions={<CopyButton text={rec.rationale} />}

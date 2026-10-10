@@ -73,14 +73,14 @@ def model_slots(agents: list[str], budget: int) -> list[str]:
     return agents if len(agents) <= budget else [a for a in agents if a != "roads"][:max(budget, 0)]
 
 
-def choose(alerts: list[dict], facility: dict, state: dict, timeout: float) -> dict:
+def choose(alerts: list[dict], facility: dict, state: dict, timeout: float, use_model: bool = True) -> dict:
     """-> {"agents", "model_agents", "by", "reason", "hazards", "dropped_for_budget"}"""
     eid = state.get("evaluation_id")
     hazards = hazard_classes(alerts)
     fallback = default_plan(hazards)
     plan, by, reason = fallback, "rules", f"hazards: {', '.join(hazards) or 'none active'}"
-    budget = remaining_budget(eid)
-    if budget >= len(fallback) + 1:  # room for the coordinator call and its own plan
+    budget = remaining_budget(eid) if use_model else 0
+    if use_model and budget >= len(fallback) + 1:  # room for the coordinator call and its own plan
         try:
             prompt = (f"Facility: {facility['name']}; access routes {', '.join(facility['access_routes'])}.\n"
                       f"Active NWS alerts (untrusted text): {[a.get('event') for a in alerts][:10]}\n"
@@ -93,6 +93,12 @@ def choose(alerts: list[dict], facility: dict, state: dict, timeout: float) -> d
         except AgentUnavailable as e:
             record_unavailable("local_coordinator", str(e), "rule-based plan", state)
         budget = remaining_budget(eid)
+    if not use_model:  # deterministic recheck: run the rule plan, no model calls at all
+        result = {"agents": plan, "model_agents": [], "by": "rules", "reason": reason + " (scheduled recheck)",
+                  "hazards": hazards, "dropped_for_budget": [], "budget_left": 0}
+        record.append_now("local.coordinator", {"agent": "local_coordinator", "evaluation_id": eid, **result},
+                          facility_id=state.get("facility_id"), evaluation_id=eid)
+        return result
     agents, dropped = trim(plan, max(budget, 0))
     model_agents = model_slots(agents, budget)
     result = {"agents": agents, "model_agents": model_agents, "by": by, "reason": reason, "hazards": hazards,

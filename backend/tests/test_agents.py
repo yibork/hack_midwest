@@ -226,10 +226,11 @@ def test_rejected_draft_falls_back_to_template(monkeypatch, canned_nws):
     rec_s = RecSchema.model_validate(rec)
     monkeypatch.setattr(writer_agent, "draft", lambda *a, **k: ("The office should switch to telework today.", "normal"))
     before = len(events("writer_rejected"))
-    text, source = writer_agent.write_rationale(
+    text, source, label = writer_agent.write_rationale(
         rec_s, [], facility_name="X", tz="America/Chicago",
         state=runtime.new_state(evaluation_id=rec.evaluation_id, facility_id=FACILITY_ID), timeout=5)
     assert source == "template" and text == rec_s.rationale
+    assert label.startswith("AI draft rejected: names posture") and label.endswith("template used")
     rejected = events("writer_rejected")
     assert len(rejected) == before + 1 and "telework" in rejected[-1].payload["reason"]
 
@@ -330,3 +331,38 @@ def test_writer_rejects_stated_posture_mismatch_and_numbers():
     assert "stated_posture" in writer_agent.validate_rationale(text, "normal", facts, "closure")
     assert "61" in writer_agent.validate_rationale(text + " Gusts of 61 mph would move this to closure.", "normal", facts)
     assert writer_agent.validate_rationale("The office should close today; closure recommended.", "normal", facts)
+
+
+
+def test_writer_retries_once_after_a_length_rejection(monkeypatch):
+    from app.schemas import Recommendation as RecSchema
+    rec = RecSchema(id="r", facility_id="f", evaluated_at=utcnow(), operating_date=utcnow().date(), posture="normal",
+                    triggers=[], confidence="high", confidence_reasons=["ok"], what_would_change=[],
+                    rationale="Template text.", evidence_ids=[], policy_version="t")
+    calls = []
+
+    def fake_draft(rec, facts, state, timeout, feedback=None):
+        calls.append(feedback)
+        return ("word " * 130 + "normal operations.", "normal") if not feedback else (
+            "The rules engine recommends normal operations; a manager must approve.", "normal")
+    monkeypatch.setattr(writer_agent, "draft", fake_draft)
+    state = runtime.new_state(evaluation_id=f"retry-{uuid.uuid4().hex[:6]}", facility_id="f")
+    text, source, label = writer_agent.write_rationale(rec, [], facility_name="X", tz="America/Chicago",
+                                                       state=state, timeout=5)
+    assert source == "agent" and label == "AI draft" and len(calls) == 2 and calls[1].startswith("too long")
+
+    monkeypatch.setattr(writer_agent, "draft", lambda *a, **k: ("word " * 130 + "normal operations.", "normal"))
+    text, source, label = writer_agent.write_rationale(rec, [], facility_name="X", tz="America/Chicago",
+                                                       state=state, timeout=5)
+    assert source == "template" and label.startswith("AI draft rejected: too long") and text == "Template text."
+
+
+def test_writer_label_when_llm_unavailable(monkeypatch):
+    from app.schemas import Recommendation as RecSchema
+    rec = RecSchema(id="r", facility_id="f", evaluated_at=utcnow(), operating_date=utcnow().date(), posture="normal",
+                    triggers=[], confidence="high", confidence_reasons=[], what_would_change=[],
+                    rationale="Template text.", evidence_ids=[], policy_version="t")
+    use_model(monkeypatch, FailingModel())
+    _, source, label = writer_agent.write_rationale(rec, [], facility_name="X", tz="America/Chicago",
+                                                    state=runtime.new_state(evaluation_id="u1", facility_id="f"), timeout=5)
+    assert source == "template" and label == "LLM unavailable - template used"

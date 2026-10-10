@@ -277,6 +277,18 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
     elif local.corroborations:
         reasons.append(local.corroborations[0])
     reasons += local.notes
+
+    # Forecast lead time caps confidence in weather-driven conclusions: watches and warnings for a
+    # day 2-3 days out may simply not be issued yet. (A posture driven only by a current road
+    # closure is not a forecast.)
+    lead_h = (w.commute_start - now).total_seconds() / 3600
+    weather_driven = not triggers or any(t.rule_id != "access_route_closed" for t in triggers)
+    if weather_driven and lead_h > 24:
+        cap = 2 if lead_h > 48 else 1
+        if level < cap:
+            level = cap
+        reasons.append(f"Forecast is {round(lead_h)} h out; NWS watches/warnings for this day may not be issued "
+                       f"yet (confidence capped at {['high', 'medium', 'low'][cap]}).")
     confidence = ["high", "medium", "low"][level]
 
     # 4. What would change the recommendation.
@@ -314,6 +326,7 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
         posture=posture, triggers=triggers, confidence=confidence, confidence_reasons=reasons,
         what_would_change=changes, rationale="", evidence_ids=[e.id for e in evidence_list],
         policy_version=policy.version, target_mode=target_mode, target_note=target_note,
+        lead_time_hours=round(lead_h, 1),
     )
     rec.rationale = template_rationale(rec, facility, w, len(alerts), commute_peak, departure_peak,
                                        commute_passed)

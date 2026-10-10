@@ -3,6 +3,7 @@ an email. It may only rephrase. Any draft that names a different posture or cite
 isn't in the facts is discarded in favor of the deterministic template."""
 import json
 import re
+import threading
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
@@ -28,7 +29,8 @@ SYSTEM_PROMPT = f"""You write the rationale for a facility operating-posture rec
 a deterministic rules engine. A USDA manager will paste your paragraph into an email.
 
 Rules:
-- One plain-language paragraph, at most {MAX_WORDS} words. No headings, lists or markdown.
+- One plain-language paragraph. Hard limit {MAX_WORDS} words (longer drafts are rejected); aim \
+for 90-110 words. No headings, lists or markdown.
 - Set stated_posture to the recommended posture exactly as given (e.g. "normal", "delayed_arrival").
 - State the recommended posture using the posture label given (e.g. "recommends normal \
 operations", "recommends a delayed arrival"). Other postures may appear only in conditional \
@@ -125,9 +127,12 @@ def validate_rationale(text: str, posture: str, facts: dict, stated_posture: str
     return None
 
 
-def draft(rec: Recommendation, facts: dict, state: dict, timeout: float) -> tuple[str, str]:
+def draft(rec: Recommendation, facts: dict, state: dict, timeout: float, feedback: str | None = None) -> tuple[str, str]:
     agent = make_agent(NAME, SYSTEM_PROMPT)
     prompt = "Write the rationale paragraph from these facts:\n" + json.dumps(facts, default=str, indent=1)
+    if feedback:
+        prompt += (f"\n\nYour previous draft was rejected: {feedback}. Rewrite it within {MAX_WORDS} words "
+                   f"(aim for 90-110).")
     result = invoke(agent, prompt, state, timeout, structured_output_model=Rationale)
     out = result.structured_output
     if not isinstance(out, Rationale):
@@ -136,20 +141,28 @@ def draft(rec: Recommendation, facts: dict, state: dict, timeout: float) -> tupl
 
 
 def write_rationale(rec: Recommendation, evidence: list[Evidence], *, facility_name: str, tz: str,
-                    state: dict, timeout: float) -> tuple[str, str]:
-    """-> (rationale, "agent" | "template"). rec.rationale holds the engine's template."""
+                    state: dict, timeout: float) -> tuple[str, str, str]:
+    """-> (rationale, "agent" | "template", label). rec.rationale holds the engine's template.
+    A draft rejected for length gets one retry with the reason; then the template is used.
+    label: "AI draft" | "AI draft rejected: <reason> - template used" | "LLM unavailable - template used"."""
     facts = build_facts(rec, evidence, facility_name, tz)
-    try:
-        text, stated = draft(rec, facts, state, timeout)
-    except AgentUnavailable as e:
-        record_unavailable(NAME, str(e), "template rationale", state)
-        return rec.rationale, "template"
-    reason = validate_rationale(text, rec.posture, facts, stated)
     ids = {"evaluation_id": state.get("evaluation_id"), "facility_id": state.get("facility_id")}
-    if reason:
-        record.append_now("writer_rejected", {"agent": NAME, **ids, "reason": reason, "draft": text},
+    feedback = None
+    for attempt in (1, 2):
+        try:
+            text, stated = draft(rec, facts, {**state, "closed": threading.Event()} if attempt > 1 else state,
+                                 timeout, feedback)
+        except AgentUnavailable as e:
+            record_unavailable(NAME, str(e), "template rationale", state)
+            return rec.rationale, "template", "LLM unavailable - template used"
+        reason = validate_rationale(text, rec.posture, facts, stated)
+        if reason is None:
+            record.append_now("writer_accepted", {"agent": NAME, **ids, "words": len(text.split()), "attempt": attempt},
+                              facility_id=ids["facility_id"], evaluation_id=ids["evaluation_id"])
+            return text, "agent", "AI draft"
+        record.append_now("writer_rejected", {"agent": NAME, **ids, "reason": reason, "draft": text, "attempt": attempt},
                           facility_id=ids["facility_id"], evaluation_id=ids["evaluation_id"])
-        return rec.rationale, "template"
-    record.append_now("writer_accepted", {"agent": NAME, **ids, "words": len(text.split())},
-                      facility_id=ids["facility_id"], evaluation_id=ids["evaluation_id"])
-    return text, "agent"
+        if not reason.startswith("too long") or attempt == 2:
+            return rec.rationale, "template", f"AI draft rejected: {reason} - template used"
+        feedback = reason
+    return rec.rationale, "template", "AI draft rejected - template used"  # pragma: no cover

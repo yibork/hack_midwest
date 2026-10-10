@@ -261,6 +261,18 @@ shows each source's last fetch.
 - **Demo:** in `DEMO_MODE`, "Today as a workday (DEMO)" evaluates today with the weekday
   schedule, clearly labelled.
 - **Schema:** new nullable columns are added automatically at startup (`db.add_missing_columns`).
+- **Forecast lead time** (from now to the commute window) caps confidence in weather-driven
+  conclusions. Up to 24 h: no cap. 24-48 h: at most medium. Over 48 h: low, with the reason
+  "forecast is N h out; NWS watches/warnings for this day may not be issued yet". The lead time
+  is also recorded with the decision.
+- **Missing hourly data is not calm.** If the hourly forecast has no periods inside the target
+  day's commute or departure window, that evidence is `unknown` and lowers confidence.
+- **Scheduled re-evaluations** (`app/scheduler.py`, `SCHEDULER_LOOP`): at 15:00 the day before
+  the target day and at 04:00 on it. Each runs the deterministic pipeline first, with no model
+  calls. Only a change in posture, triggers or confidence runs the agents and stores a new
+  recommendation. The recommendation shows the next scheduled run.
+- **Rationale label:** "AI draft", "AI draft rejected: <reason> - template used", or "LLM
+  unavailable - template used". A draft that is too long gets one retry with the reason.
 
 ## People, access and notifications
 

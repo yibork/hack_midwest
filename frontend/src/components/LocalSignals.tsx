@@ -26,7 +26,7 @@ export function LocalEvidenceDetail({ e }: { e: Evidence }) {
       <div className="my-1 text-sm">
         <a className="underline" href={f.link} target="_blank" rel="noreferrer">{f.title}</a>
         <div className="text-xs text-slate-500">
-          <Where f={f} /> · {f.source_name} · {f.reported_at ? `reported ${fmtDateTime(f.reported_at, "America/Chicago")}` : "undated"}
+          <Where f={f} /> · <Since f={f} /> · {f.source_name}
           {f.extracted_by === "code" ? " · extracted by code (model unavailable)" : ""}
         </div>
         <blockquote className="mt-1 border-l-2 border-slate-300 pl-2 text-xs italic text-slate-700">“{f.supporting_quote}”</blockquote>
@@ -34,10 +34,18 @@ export function LocalEvidenceDetail({ e }: { e: Evidence }) {
     );
   }
   if (e.kind === "local_feed") {
-    const v = e.value as { source_name: string; item_count: number; fetch_status: string };
-    return <div className="text-xs text-slate-600">{v.source_name}: {v.fetch_status}, {v.item_count} item(s)</div>;
+    return <div className="text-xs text-slate-600">{e.relevance_note}</div>;
   }
   return null;
+}
+
+/** "construction, active since Mar 1, 2025": road items are current conditions, often long-running. */
+function Since({ f }: { f: LocalFactValue }) {
+  const since = f.active_since ?? f.reported_at;
+  const what = f.category && f.category !== "other" ? f.category : null;
+  if (!since) return <>{what ?? "undated"}</>;
+  const d = new Date(since).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return <>{what ? `${what}, ` : ""}active since {d}</>;
 }
 
 /** "31 km from facility", or why location is uncertain. */
@@ -65,8 +73,13 @@ export default function LocalSignals({ evidence, tz }: { evidence: Evidence[]; t
   if (!feeds.length && !facts.length) return null;
   const agents = [...new Set([...feeds.map((e) => (e.value as { agent: string }).agent), ...facts.map((f) => f.agent)])];
   const failed = feeds.filter((e) => e.status !== "ok");
+  const results = evidence.filter((e) => e.kind === "local_agent_result")
+    .map((e) => e.value as { agent: string; rejected: { reason: string; title: string }[] });
   return (
     <Card title={`Local signals (${facts.length} fact${facts.length === 1 ? "" : "s"} from ${feeds.length} sources)`}>
+      <ul className="mb-2 text-xs text-slate-500">
+        {feeds.map((e) => <li key={e.id}>{e.relevance_note}</li>)}
+      </ul>
       <p className="mb-3 text-xs text-slate-500">
         Agents extract facts from allowlisted sources; code checks each against the source text, and policy rules decide
         what they can change. Local signals never lower the posture. News is never treated as confirmation.
@@ -89,7 +102,7 @@ export default function LocalSignals({ evidence, tz }: { evidence: Evidence[]; t
                         in {f.affected_employee_ids.length} commute corridor{f.affected_employee_ids.length > 1 ? "s" : ""} ({f.matches_employee_commute_routes.join(", ")})
                       </span>
                     )}
-                    <span className="text-xs text-slate-500">{f.reported_at ? fmtDateTime(f.reported_at, tz) : "undated"} · {f.confidence}</span>
+                    <span className="text-xs text-slate-500"><Since f={f} /> · {f.confidence}</span>
                   </li>
                 ))}
               </ul>
@@ -97,6 +110,14 @@ export default function LocalSignals({ evidence, tz }: { evidence: Evidence[]; t
           );
         })}
       </div>
+      {results.filter((r) => r.rejected.length).map((r) => (
+        <div key={r.agent} className="mt-3 text-sm text-slate-700">
+          <span className="font-semibold">{AGENT_LABEL[r.agent] ?? r.agent}: {r.rejected.length} fact{r.rejected.length > 1 ? "s" : ""} rejected</span>
+          <ul className="ml-4 list-disc text-xs text-slate-600">
+            {r.rejected.map((x, i) => <li key={i}>{x.reason}{x.title ? ` ("${x.title}")` : ""}</li>)}
+          </ul>
+        </div>
+      ))}
       {failed.length > 0 && (
         <p className="mt-3 text-sm text-amber-800">
           Unavailable (not treated as "no closures"): {failed.map((e) => (e.value as { source_name: string }).source_name).join(", ")}

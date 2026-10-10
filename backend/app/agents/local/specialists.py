@@ -59,8 +59,8 @@ def run(agent: str, items: list[dict], facility: dict, commute_routes: list[str]
 
 
 def run_or_fallback(agent: str, items: list[dict], facility: dict, commute_routes: list[str], state: dict,
-                    timeout: float, use_model: bool, geo: GeoContext) -> tuple[list[dict], str]:
-    """-> (facts, how): how is "agent", "code" (roads fallback) or "none"."""
+                    timeout: float, use_model: bool, geo: GeoContext) -> tuple[list[dict], str, list[dict]]:
+    """-> (facts, how, rejected): how is "agent", "code" (roads fallback) or "none"."""
     name = f"local_{agent}_agent"
     if use_model:
         try:
@@ -72,7 +72,7 @@ def run_or_fallback(agent: str, items: list[dict], facility: dict, commute_route
                             f"[{f['relevance']}{', %s km' % f['distance_km'] if f['distance_km'] is not None else ''}]"
                             for f in facts][:8],
             }, facility_id=state.get("facility_id"), evaluation_id=state.get("evaluation_id"))
-            return facts, "agent"
+            return facts, "agent", rejected
         except AgentUnavailable as e:
             record_unavailable(name, str(e), "code extraction" if agent == "roads" else "no facts (items still listed)",
                                state)
@@ -82,5 +82,5 @@ def run_or_fallback(agent: str, items: list[dict], facility: dict, commute_route
             "agent": name, "evaluation_id": state.get("evaluation_id"), "items_in": len(items), "facts": len(facts),
             "extracted_by": "code", "summary": [f"{f['fact_type']} {', '.join(f['routes_mentioned'])} [{f['relevance']}]" for f in facts][:8],
         }, facility_id=state.get("facility_id"), evaluation_id=state.get("evaluation_id"))
-        return facts, "code"
-    return [], "none"
+        return facts, "code", []
+    return [], "none", []

@@ -92,15 +92,18 @@ def validate(facts: list[LocalFact], items: dict[str, dict], agent: str, geo: Ge
     for f in facts:
         item = items.get(f.item_id)
         if item is None:
-            bad.append({"item_id": f.item_id, "reason": "unknown item_id"})
+            bad.append({"item_id": f.item_id, "reason": "item not found in the fetched sources"})
             continue
         if f.fact_type not in AGENT_FACT_TYPES[agent]:
-            bad.append({"item_id": f.item_id, "reason": f"{agent} agent cannot report {f.fact_type}"})
+            bad.append({"item_id": f.item_id, "title": item["title"], "reason": f"{agent} agent cannot report {f.fact_type.replace('_', ' ')}"})
             continue
         text = f"{item['title']} {item.get('excerpt', '')}"
         quote = " ".join(f.supporting_quote.split())
-        if not quote or len(quote.split()) > MAX_QUOTE_WORDS or norm(quote) not in norm(text):
-            bad.append({"item_id": f.item_id, "reason": "supporting_quote is not a short verbatim quote from the item"})
+        if not quote or norm(quote) not in norm(text):
+            bad.append({"item_id": f.item_id, "title": item["title"], "reason": "quote not found in source"})
+            continue
+        if len(quote.split()) > MAX_QUOTE_WORDS:
+            bad.append({"item_id": f.item_id, "title": item["title"], "reason": f"quote longer than {MAX_QUOTE_WORDS} words"})
             continue
         in_text = routes_in_text(text)
         routes = sorted(normalize_routes(f.routes_mentioned) & in_text)
