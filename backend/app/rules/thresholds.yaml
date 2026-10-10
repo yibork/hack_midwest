@@ -101,3 +101,15 @@ rules:
     justification: >
       Warnings are short-fused. If one begins before opening, delaying arrival keeps staff off
       the road during the threat; if it begins mid-day, release staff once it is safe to travel.
+
+# Local signals (agents/local). Facts are extracted by agents and validated in code; only these
+# rules decide what they change. Nothing from local signals can lower the posture.
+local_signals:
+  citation: "facility policy v1 (TODO: verify)"
+  closure_confidence: [high, medium]   # agent confidence needed for a road closure to count
+  school_min_home_counties: 3          # school closures in this many employee home counties corroborate
+  access_route_radius_miles: 15        # a closure farther than this (when coordinates are known) doesn't block access
+  commute_radius_miles: 40             # same, for employee commute routes (ROUTE_CLOSED)
+  access_route_closed:
+    some_routes_closed: delayed_arrival
+    all_routes_closed: telework

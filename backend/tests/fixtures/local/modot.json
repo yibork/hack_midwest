@@ -1,0 +1,7 @@
+[
+ {"OID": 1, "MT": "TI", "MST": "IMPACT", "LOI": "CLOSED", "GEOM": {"x": -94.58, "y": 39.10}, "MSG": "<div>Road closed due to FLOODING IS 35 Northbound (JACKSON County)</div><div>Impact reported at 05:10 AM on 10/10/2026. Road will be closed until further notice.</div>", "MSGS": "<div>IS 35 is CLOSED Northbound due to FLOODING.</div>", "MSGL": "IS 35 N JACKSON"},
+ {"OID": 2, "MT": "TI", "MST": "IMPACT", "LOI": "CLOSED", "GEOM": {"x": -94.58, "y": 39.10}, "MSG": "<div>Road closed due to FLOODING IS 35 Southbound (JACKSON County)</div><div>Impact reported at 05:12 AM on 10/10/2026. Road will be closed until further notice.</div>", "MSGS": "<div>IS 35 is CLOSED Southbound due to FLOODING.</div>", "MSGL": "IS 35 S JACKSON"},
+ {"OID": 3, "MT": "WZ", "MST": "WZ", "LOI": "CLOSED", "GEOM": {"x": -94.5, "y": 39.1}, "MSG": "<div>Road closed due to Work Zone Ramp IS70E TO MYRTLE AVE Eastbound (JACKSON County)</div>", "MSGS": "<div>Ramp IS70E TO MYRTLE AVE is CLOSED Eastbound.</div>", "MSGL": "RP IS70E TO MYRTLE AVE E JACKSON"},
+ {"OID": 4, "MT": "CL", "MST": "CL", "LOI": "CL", "GEOM": {"x": -94.5, "y": 38.9}, "MSG": "This commuter lot is located at US 71 AND RT J in CASS County.", "MSGS": "Commuter lot", "MSGL": "US 71 AND RT J"},
+ {"OID": 5, "MT": "WZ", "MST": "WZ", "LOI": "CLOSED", "GEOM": {"x": -92.3, "y": 38.9}, "MSG": "<div>Road closed due to Work Zone IS 70 Eastbound (BOONE County)</div>", "MSGS": "<div>IS 70 is CLOSED Eastbound.</div>", "MSGL": "IS 70 E BOONE"}
+]

@@ -14,6 +14,7 @@ os.environ["RESOLVE_HOME_ZONES"] = "0"
 os.environ["PREDRAFT"] = "0"
 os.environ["ESCALATION_LOOP"] = "0"
 os.environ["DEMO_MODE"] = "0"
+os.environ["LOCAL_SIGNALS"] = "0"  # local-signal tests call the modules directly with fixtures
 os.environ["PUBLIC_BASE_URL"] = "http://closurecall.test"
 os.environ["NTFY_TOPIC"] = ""
 os.environ["RESEND_API_KEY"] = ""

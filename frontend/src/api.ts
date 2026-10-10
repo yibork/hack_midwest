@@ -22,7 +22,7 @@ export interface Evidence {
   id: string;
   facility_id: string | null;
   evaluation_id: string | null;
-  source: "nws" | "nwps" | "modot" | "roster";
+  source: "nws" | "nwps" | "modot" | "roster" | "demo" | "local";
   kind: string;
   value: unknown;
   units: string | null;
@@ -41,7 +41,7 @@ export interface Trigger {
   description: string;
   threshold: number | string | null;
   observed: number | string | null;
-  margin: number | null;
+  margin: number | string | null; // e.g. "1 of 3 access routes closed"
   units: string | null;
   citation: string;
   posture: Posture;
@@ -272,6 +272,54 @@ export interface MyStatus {
   ack_url: string | null;
 }
 
+export type Authority = "official_federal" | "official_state" | "official_local" | "news";
+
+/** Evidence.value for kind "local_fact" (validated in code; see backend agents/local/facts.py). */
+export interface LocalFactValue {
+  item_id: string;
+  fact_type: string;
+  location_text: string;
+  routes_mentioned: string[];
+  counties: string[];
+  effective_from: string | null;
+  effective_until: string | null;
+  matches_facility_access_route: boolean;
+  matches_employee_commute_routes: string[];
+  supporting_quote: string;
+  confidence: "high" | "medium" | "low";
+  agent: "roads" | "schools" | "public_safety" | "news";
+  source_id: string;
+  source_name: string;
+  authority: Authority;
+  title: string;
+  link: string;
+  reported_at: string | null;
+  extracted_by: "agent" | "code";
+}
+
+export interface SourceRow {
+  id: string;
+  name: string;
+  url: string;
+  link: string | null;
+  kind: string;
+  agent: string;
+  authority: Authority;
+  area: { counties?: string[]; cities?: string[] };
+  refresh_minutes: number;
+  robots: string;
+  last_fetch: string | null;
+  status: string;
+  items_found: number | null;
+  error: string | null;
+}
+
+export interface SourcesResponse {
+  sources: SourceRow[];
+  integrated: { id: string; name: string; url: string; authority: string; note?: string }[];
+  skipped: { name: string; url: string; reason: string }[];
+}
+
 export interface Persona {
   employee_id: string;
   name: string;
@@ -399,6 +447,7 @@ export const api = {
   me: () => request<MyStatus>("/me"),
   ack: (notificationId: string) => post<Notification>(`/notifications/${notificationId}/ack`),
   viewers: () => request<Viewers>("/viewers"),
+  sources: () => request<SourcesResponse>("/sources"),
   simulate: (body: { kind: "zone_alert" | "road_closure" | "clear"; zone?: string; route?: string }) =>
     post<Record<string, unknown>>("/demo/simulate", body),
   nationalScan: () => request<NationalAlert[]>("/national-scan"),

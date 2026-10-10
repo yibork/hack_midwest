@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import type { Evidence, RecommendationDetail } from "../api";
 import DecisionClock from "./DecisionClock";
 import { PeopleStrip } from "./People";
+import LocalSignals, { AuthorityBadge, LocalEvidenceDetail, isLocal } from "./LocalSignals";
 import { Button, Card, ConfidenceBadge, PostureBadge, StatusBadge, fmtDateTime } from "./ui";
 
 /** The full recommendation: posture, clock, triggers, confidence, what would change, rationale, evidence. */
@@ -72,7 +73,7 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
                     </td>
                     <td className="py-2 pr-3 font-semibold">{t.observed}{t.units ? ` ${t.units}` : ""}</td>
                     <td className="py-2 pr-3">{t.threshold}{t.units ? ` ${t.units}` : ""}</td>
-                    <td className="py-2 pr-3 tabular-nums">{t.margin != null ? `${t.margin > 0 ? "+" : ""}${t.margin} ${t.units ?? ""}` : "—"}</td>
+                    <td className="py-2 pr-3 tabular-nums">{t.margin == null ? "—" : typeof t.margin === "string" ? t.margin : `${t.margin > 0 ? "+" : ""}${t.margin} ${t.units ?? ""}`}</td>
                     <td className="py-2 pr-3"><PostureBadge posture={t.posture} size="sm" /></td>
                     <td className={`py-2 text-xs ${t.citation.startsWith("TODO") ? "text-amber-700" : "text-slate-600"}`}>{t.citation}</td>
                   </tr>
@@ -117,6 +118,8 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
         <p className="leading-relaxed">{rec.rationale}</p>
       </Card>
 
+      <LocalSignals evidence={rec.evidence} tz={tz} />
+
       <EvidenceList evidence={rec.evidence} tz={tz} />
     </div>
   );
@@ -159,9 +162,13 @@ export function EvidenceList({ evidence, tz }: { evidence: Evidence[]; tz: strin
             {evidence.map((e) => (
               <tr key={e.id} className={`border-t border-slate-100 align-top ${e.status === "unknown" ? "bg-red-50" : e.status === "stale" ? "bg-amber-50" : ""}`}>
                 <td className="py-2 pr-3"><StatusBadge status={e.status} /></td>
-                <td className="py-2 pr-3 font-mono uppercase">{e.source}</td>
+                <td className="py-2 pr-3 font-mono uppercase">
+                  {e.source}
+                  {isLocal(e) && <div className="mt-1"><AuthorityBadge authority={(e.value as { authority: string }).authority} /></div>}
+                </td>
                 <td className="py-2 pr-3">
                   <div className="font-semibold">{e.kind.replace(/_/g, " ")}</div>
+                  <LocalEvidenceDetail e={e} />
                   <div className="text-xs text-slate-500">{e.relevance_note}</div>
                   {e.ambiguity_flags?.map((f) => (
                     <div key={f} className="text-xs font-semibold text-amber-800">⚠ {f}</div>

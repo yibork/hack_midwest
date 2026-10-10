@@ -8,6 +8,7 @@ import NationalPage from "./pages/NationalPage";
 import PersonasPage from "./pages/PersonasPage";
 import RecordPage from "./pages/RecordPage";
 import SecurityPage from "./pages/SecurityPage";
+import SourcesPage from "./pages/SourcesPage";
 import TeamPage from "./pages/TeamPage";
 
 const NAV: Record<ViewerRole, { to: string; label: string; hint: string }[]> = {
@@ -16,6 +17,7 @@ const NAV: Record<ViewerRole, { to: string; label: string; hint: string }[]> = {
     { to: "/decide", label: "Decide", hint: "Approve, notify, call-ins" },
     { to: "/team", label: "Teams", hint: "Supervisor boards" },
     { to: "/security", label: "Access list", hint: "Security desk view" },
+    { to: "/sources", label: "Sources", hint: "Local signals allowlist" },
     { to: "/personas", label: "Demo personas", hint: "ntfy QR codes" },
     { to: "/national", label: "National scan", hint: "Active US alerts" },
     { to: "/record", label: "Record", hint: "Replay decisions" },
@@ -68,6 +70,7 @@ function Shell() {
             <>
               <Route path="/facility" element={<FacilityPage />} />
               <Route path="/decide" element={<DecidePage />} />
+              <Route path="/sources" element={<SourcesPage />} />
               <Route path="/personas" element={<PersonasPage />} />
               <Route path="/national" element={<NationalPage />} />
               <Route path="/record" element={<RecordPage />} />

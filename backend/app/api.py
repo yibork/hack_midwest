@@ -146,6 +146,32 @@ def notifications(decision_id: str, db: Session = Depends(get_db)):
     return db.scalars(select(models.Notification).where(models.Notification.notice_id == notice.id)).all()
 
 
+# ---------------------------------------------------------------- local signal sources
+
+@router.get("/sources")
+def list_sources(db: Session = Depends(get_db)):
+    """The local-signals allowlist with each source's last fetch, plus integrated and skipped sources."""
+    from .sources import local_signals as ls
+
+    latest: dict[str, models.Evidence] = {}
+    for e in db.scalars(select(models.Evidence).where(models.Evidence.kind == "local_feed")
+                        .order_by(models.Evidence.retrieved_at.desc()).limit(500)):
+        sid = (e.value or {}).get("source_id")
+        if sid and sid not in latest:
+            latest[sid] = e
+    rows = []
+    for src in ls.sources():
+        e = latest.get(src.id)
+        v = e.value if e else {}
+        rows.append({
+            "id": src.id, "name": src.name, "url": src.url, "link": src.link, "kind": src.kind, "agent": src.agent,
+            "authority": src.authority, "area": src.area, "refresh_minutes": src.refresh_minutes, "robots": src.robots,
+            "last_fetch": e.retrieved_at if e else None, "status": v.get("fetch_status") if e else "never fetched",
+            "items_found": v.get("item_count") if e else None, "error": v.get("error") if e else None,
+        })
+    return {"sources": rows, "integrated": ls.registry().get("integrated", []), "skipped": ls.skipped()}
+
+
 # ---------------------------------------------------------------- national scan
 
 @router.get("/national-scan", response_model=list[schemas.NationalAlert])

@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from ..schemas import POSTURE_ORDER, Evidence, Facility, Recommendation, Trigger
+from . import local as local_rules
 
 POLICY_PATH = Path(__file__).with_name("thresholds.yaml")
 REQUIRED_KINDS = {"active_alerts": "active NWS alerts", "wind_forecast": "wind/gust forecast"}
@@ -32,6 +33,7 @@ class Policy:
     rules: list[dict]
     commute_window_hours: float = 2
     departure_window_hours: float = 2
+    local: dict | None = None  # local_signals section (rules/local.py)
 
 
 def load_policy(path: Path = POLICY_PATH) -> Policy:
@@ -41,7 +43,8 @@ def load_policy(path: Path = POLICY_PATH) -> Policy:
     version = f"{data['version']}+{hashlib.sha256(raw).hexdigest()[:8]}"
     return Policy(version=version, rules=data["rules"],
                   commute_window_hours=data.get("commute_window_hours", 2),
-                  departure_window_hours=data.get("departure_window_hours", 2))
+                  departure_window_hours=data.get("departure_window_hours", 2),
+                  local=data.get("local_signals") or {})
 
 
 # ---------------------------------------------------------------- time windows
@@ -210,6 +213,15 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
                 triggers.append(t)
                 break
 
+    # 1b. Local signals (validated facts from allowlisted sources). Can only add triggers and
+    #     notes; the max() below means they can never lower the posture.
+    weather_fired = any(t.posture != "normal" for t in triggers)
+    area = by_kind.get("people_area")
+    area_v = area.value if area and isinstance(area.value, dict) else {}
+    local = local_rules.apply(facility, evidence_list, (w.commute_start, w.commute_end), weather_fired,
+                              policy.local or {}, area_v.get("facility_county"), area_v.get("home_counties"))
+    triggers += local.triggers
+
     # 2. Most restrictive posture wins.
     posture = max((t.posture for t in triggers), key=rank, default="normal")
 
@@ -225,6 +237,8 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
         if kind not in by_kind:
             lower(2, f"No {label} evidence was collected; conditions cannot be confirmed safe.")
     for ev in evidence_list:
+        if ev.source == "local":  # handled by rules/local.py (missing local data is noted, not "safe")
+            continue
         st = effective_status(ev, now)
         if st == "unknown":
             err = ev.value.get("error") if isinstance(ev.value, dict) else None
@@ -249,8 +263,16 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
             if abs(commute_peak - th) < NEAR_THRESHOLD_MPH:
                 lower(1, f"Forecast commute peak gust ({commute_peak:g} mph) is within "
                          f"{NEAR_THRESHOLD_MPH:g} mph of the {th:g} mph threshold.")
+    for msg in local.lowers:
+        lower(1, msg)
     if not reasons:
         reasons.append("All required sources returned current data and no values are near a threshold.")
+    if local.corroborations and level > 0:  # one level at most, and only with a fired weather rule
+        level -= 1
+        reasons.append(local.corroborations[0] + " Confidence raised one level.")
+    elif local.corroborations:
+        reasons.append(local.corroborations[0])
+    reasons += local.notes
     confidence = ["high", "medium", "low"][level]
 
     # 4. What would change the recommendation.
@@ -276,9 +298,9 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
                 alert_changes.append(f"{what} for this location "
                                      f"({c.get('window', 'operating_day').replace('_', ' ')}) "
                                      f"would move this to {rule['posture']}.")
-    changes += [text for _, text in sorted(gust_changes)] + alert_changes
+    changes += [text for _, text in sorted(gust_changes)] + alert_changes + local.changes
     for t in triggers:
-        if t.units is None:
+        if t.units is None and t.rule_id != "access_route_closed":
             changes.append(f"This holds while the triggering alert remains in effect: {t.observed}.")
     if alerts_ev is None or alerts_ev.status == "unknown":
         changes.insert(0, "Alert data could not be retrieved; re-evaluate once NWS alerts are reachable.")

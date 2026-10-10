@@ -21,6 +21,7 @@ from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from ..access.policy import Access, access_for
+from ..routes import normalize_routes
 from ..schemas import Assignment, Employee, Shift
 from . import instructions as ins
 
@@ -248,7 +249,7 @@ def _alert_hits(person: Employee, exposure: Exposure, start: datetime, end: date
 
 
 def _commute_risk(person: Employee, exposure: Exposure, start: datetime, end: datetime) -> bool:
-    return bool(_alert_hits(person, exposure, start, end) or set(person.commute_routes) & set(exposure.closed_routes))
+    return bool(_alert_hits(person, exposure, start, end) or normalize_routes(person.commute_routes) & normalize_routes(exposure.closed_routes))
 
 
 def compute_impact(ctx: PostureContext, person: Employee, assignments: list[Assignment],
@@ -398,7 +399,7 @@ def compute_impact(ctx: PostureContext, person: Employee, assignments: list[Assi
         imp.commute_risk = _commute_risk(person, exposure, c_start, c_end)
     if shift and commuting:
         hits = _alert_hits(person, exposure, c_start, c_end)
-        routes = sorted(set(person.commute_routes) & set(exposure.closed_routes))
+        routes = sorted(normalize_routes(person.commute_routes) & normalize_routes(exposure.closed_routes))
         if hits:
             imp.exposure_detail.append(", ".join(sorted({f"{h.event} ({h.zone})" for h in hits})))
             imp.add("HOME_IN_WARNING_AREA", f"home area under {imp.exposure_detail[-1]} during the commute "

@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 Posture = Literal["normal", "delayed_arrival", "early_dismissal", "telework", "closure"]
 # Least to most restrictive. The engine picks the highest-ranked posture among fired rules.
 POSTURE_ORDER: list[str] = ["normal", "delayed_arrival", "early_dismissal", "telework", "closure"]
-EvidenceSource = Literal["nws", "nwps", "modot", "roster", "demo"]
+EvidenceSource = Literal["nws", "nwps", "modot", "roster", "demo", "local"]
 EvidenceStatus = Literal["ok", "unknown", "stale"]
 Confidence = Literal["high", "medium", "low"]
 
@@ -115,7 +115,7 @@ class Trigger(BaseModel):
     description: str
     threshold: float | str | None = None
     observed: float | str | None = None
-    margin: float | None = None  # observed - threshold; positive means exceeded
+    margin: float | str | None = None  # observed - threshold (or e.g. "1 of 3 access routes closed")
     units: str | None = None
     citation: str
     posture: Posture

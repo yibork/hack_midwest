@@ -6,6 +6,11 @@ const AGENT_LABEL: Record<string, string> = {
   weather_agent: "Weather agent",
   writer_agent: "Writer agent",
   message_agent: "Message agent",
+  local_coordinator: "Local coordinator",
+  local_roads_agent: "Roads agent",
+  local_schools_agent: "Schools agent",
+  local_public_safety_agent: "Public safety agent",
+  local_news_agent: "News agent",
 };
 
 /** Live feed of one evaluation's agent activity. Polls every second while `live` is true. */
@@ -109,7 +114,11 @@ function describe(e: RecordEvent): Line | null {
     case "agent.send_backfill":
       return { ...base, title: `${who} missed ${p.missed.length}; template sent`, detail: p.missed.join(", "), tone: "warn" };
     case "evidence.fetched":
-      return { ...base, title: `NWS ${String(p.kind).replace(/_/g, " ")}: ${p.status}`, tone: p.status === "ok" ? "data" : "warn" };
+      if (p.kind === "local_fact") return null; // shown as the agent's result
+      return {
+        ...base, title: `${p.kind === "local_feed" ? "Source" : "NWS"} ${String(p.kind === "local_feed" ? p.relevance_note : p.kind).replace(/_/g, " ").slice(0, 90)}: ${p.status}`,
+        tone: p.status === "ok" ? "data" : "warn",
+      };
     case "agent_unavailable":
       return { ...base, title: `${who} unavailable → ${p.fallback}`, detail: p.reason, tone: "warn" };
     case "writer_accepted":
@@ -125,6 +134,20 @@ function describe(e: RecordEvent): Line | null {
       return { ...base, title: `Decision: ${p.action} by ${p.manager_name} → ${p.final_posture}`, tone: "engine" };
     case "dispatch_blocked":
       return { ...base, title: "Dispatch blocked: no approval", detail: `${p.tool} cancelled`, tone: "block" };
+    case "local.coordinator":
+      return {
+        ...base, title: `Local coordinator chose: ${(p.agents as string[]).join(", ")}${p.by === "rules" ? " (rules)" : ""}`,
+        detail: `${p.reason}${p.dropped_for_budget?.length ? ` · skipped for budget: ${p.dropped_for_budget.join(", ")}` : ""}`,
+        tone: "agent",
+      };
+    case "local.prefilter":
+      return { ...base, title: `${who}: ${p.relevant} of ${p.items} items pass the keyword filter`, tone: "muted" };
+    case "local.agent_result":
+      return {
+        ...base, title: `${who}: ${p.facts} fact(s)${p.extracted_by === "code" ? " (code extraction)" : ""}`,
+        detail: [...(p.summary ?? []), ...((p.rejected ?? []) as { reason: string }[]).map((r) => `rejected: ${r.reason}`)].join(" · ") || undefined,
+        tone: p.rejected?.length ? "warn" : "agent",
+      };
     case "notice.created":
       return {
         ...base, title: `Notice v${p.version} prepared (${p.kind})`,

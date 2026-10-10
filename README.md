@@ -213,6 +213,40 @@ docker compose -f compose.prod.yml logs -f caddy    # proxy / TLS
 docker compose -f compose.prod.yml ps               # health status
 ```
 
+## Local signals (roads, schools, public safety, news)
+
+Four Strands specialist agents run under a coordinator, in parallel with the weather agent. Each
+reads only allowlisted sources: [`backend/app/sources/registry.yaml`](backend/app/sources/registry.yaml),
+with the research and skipped sources in [`docs/sources.md`](docs/sources.md). The **Sources** page
+shows each source's last fetch.
+
+- **Fetching** (`sources/local_signals.py`):
+  - allowlist only; redirects are followed only within it
+  - robots.txt is respected for our User-Agent and for AI agents
+  - `refresh_minutes` cache, last 24 hours only, excerpts of at most 300 characters
+  - a failed fetch is `unknown`, never "no closures"
+- **Agents** (`agents/local/`):
+  - a keyword pre-filter in code, then one model call per agent, structured output only, and no tools
+  - source text is treated as untrusted
+  - code validates every fact: the item exists, the quote is verbatim, routes appear in the item,
+    and route matches are recomputed. A closure counts only for the item's own route, and lane,
+    ramp, exit and weigh-station closures are not road closures.
+  - roads fall back to code extraction when no model call is possible
+- **Coordinator**:
+  - flood → roads + news
+  - winter → roads + schools + public safety
+  - severe storm → public safety + news
+  - nothing active → roads only
+  - if the evaluation's call budget is short, news is dropped first, then schools
+- **Effects** (`rules/local.py`, facility policy v1):
+  - `access_route_closed` gives a delayed arrival, or telework if every access route is closed
+    ("N of M access routes closed"). It needs an official state closure on an access route,
+    within 15 miles, during the commute window.
+  - commute-route closures go to the people engine as `ROUTE_CLOSED`
+  - schools and official local items corroborate only alongside a fired weather rule
+  - news is a "manager should check" note only
+  - local signals never lower the posture
+
 ## People, access and notifications
 
 Everything here is deterministic and unit-tested. The LLM never decides who is told what.
@@ -268,7 +302,8 @@ Key rules:
 | `NTFY_TOPIC` | Fallback push topic for people without their own `ntfy_topic` |
 | `PUBLIC_BASE_URL` | Base for ack links in messages (default `http://localhost:8000`; set the public URL in production) |
 | `DEMO_MODE` | `1`: ack timers 1/2/3 min, `/api/demo/simulate` enabled |
-| `RESOLVE_HOME_ZONES`, `PREDRAFT`, `ESCALATION_LOOP` | Default `1`; tests set `0` (no network at seed, no background threads) |
+| `RESOLVE_HOME_ZONES`, `PREDRAFT`, `ESCALATION_LOOP`, `LOCAL_SIGNALS` | Default `1`; tests set `0` (no network, no background threads) |
+| `LOCAL_AGENT_TIMEOUT_SECONDS` | Default 45; per local agent model call (they run in parallel with the weather agent) |
 | `RESEND_API_KEY`, `RESEND_FROM` | Email via Resend |
 | `NOTIFY_EMAIL_OVERRIDE` | Demo: send every email to one inbox |
 | `SNAPSHOT_DIR` | Raw NWS responses, default `./snapshots` |

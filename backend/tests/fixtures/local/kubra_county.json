@@ -1,0 +1,4 @@
+{"file_data": {"areas": [{"key": "state", "name": "MISSOURI", "areas": [
+ {"key": "county", "name": "JACKSON", "cust_a": {"val": 4210}, "cust_s": 310000, "percent_cust_a": {"val": 1.36}, "etr": "2026-10-10T22:45:00Z"},
+ {"key": "county", "name": "CLAY", "cust_a": {"val": 15}, "cust_s": 110000, "percent_cust_a": {"val": 0.01}},
+ {"key": "county", "name": "BOONE", "cust_a": {"val": 9000}, "cust_s": 80000, "percent_cust_a": {"val": 11.2}}]}]}}

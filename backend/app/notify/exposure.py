@@ -17,9 +17,11 @@ from ..db import SessionLocal, utcnow
 from ..models import Evidence
 from ..services import store_evidence
 from ..sources import nws
+from ..routes import normalize_routes
 from .impact import Exposure, ZoneAlert
 
 KIND = "home_zone_alerts"
+COMMUTE_RADIUS_MILES = 40  # matches rules/thresholds.yaml local_signals.commute_radius_miles
 
 
 def home_zones(people: list[schemas.Employee]) -> list[str]:
@@ -75,10 +77,17 @@ def load(db: Session, facility_id: str, evaluation_id: str | None, now: datetime
         Evidence.kind.in_(["road_closure", "simulated_zone_alert"]),
         or_(Evidence.valid_until.is_(None), Evidence.valid_until > now))).all()
     routes = set()
+    if evaluation_id:  # official state DOT closures found by the roads agent (agents/local)
+        for e in db.scalars(select(Evidence).where(Evidence.evaluation_id == evaluation_id,
+                                                   Evidence.kind == "local_fact")):
+            v = e.value if isinstance(e.value, dict) else {}
+            near = v.get("distance_miles") is None or v["distance_miles"] <= COMMUTE_RADIUS_MILES
+            if v.get("authority") == "official_state" and v.get("fact_type") == "road_closure" and near:
+                routes |= set(v.get("routes_mentioned") or [])
     for e in extra:
         v = e.value if isinstance(e.value, dict) else {}
         if e.kind == "road_closure" and v.get("route"):
-            routes.add(v["route"])
+            routes |= normalize_routes([v["route"]])
         elif e.kind == "simulated_zone_alert" and v.get("zone"):
             alerts.append(ZoneAlert(zone=v["zone"], event=v.get("event") or "Winter Storm Warning",
                                     onset=nws.parse_dt(v.get("onset")), ends=nws.parse_dt(v.get("ends"))))
