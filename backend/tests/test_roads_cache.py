@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app import models, pipeline
+from app import models, pipeline, schemas
 from app.agents.local import roads_cache, run as local_run, specialists
 from app.db import SessionLocal, utcnow
 from app.main import app
@@ -158,3 +158,29 @@ def test_live_roads_check_gives_a_preliminary_recommendation_then_final(monkeypa
     with SessionLocal() as db:
         again = pipeline.evaluate_facility(db, db.get(models.Facility, FACILITY_ID))
     assert again.status == "final" and roads_agent == ["roads"]
+
+
+
+def test_people_summary_reconciles_minor_road_conditions():
+    """Ramp closures in commute corridors are shown as minor, next to 0 exposed commutes."""
+    from app import services
+    with SessionLocal() as db:
+        facility = db.get(models.Facility, FACILITY_ID)
+        day, _, _ = pipeline.choose_target(schemas.Facility.model_validate(facility), utcnow())
+        onsite = [e.id for e in db.scalars(select(models.Employee).where(models.Employee.role == "employee")).all()]
+        ev = models.Evidence(
+            id=uuid.uuid4().hex, facility_id=FACILITY_ID, source="local", kind="local_fact", status="ok",
+            retrieved_at=utcnow(), relevance_note="x",
+            value={"fact_type": "road_condition", "title": "Ramp MYRTLE AVE TO IS70W is CLOSED Westbound",
+                   "supporting_quote": "Ramp MYRTLE AVE TO IS70W is CLOSED", "affected_employee_ids": onsite[:40],
+                   "relevance": "commute", "authority": "official_state"})
+        db.add(ev)
+        rec = models.Recommendation(
+            id=uuid.uuid4().hex, facility_id=FACILITY_ID, evaluated_at=utcnow(), operating_date=day, posture="normal",
+            triggers=[], confidence="high", confidence_reasons=[], what_would_change=[], rationale="t",
+            rationale_source="template", evidence_ids=[ev.id], policy_version="t")
+        db.add(rec)
+        db.commit()
+        people = services.people_summary(db, rec, facility)
+    assert people.exposed_count == 0
+    assert people.minor_commute_count > 0 and people.minor_commute_label == "ramp closures"

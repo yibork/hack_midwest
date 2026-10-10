@@ -362,6 +362,10 @@ class PeopleSummary(BaseModel):
     params: dict
     clock: DecisionClock
     exposed_count: int
+    # Commuters whose corridor passes a road *condition* (lane/ramp closure, delays) but no closure:
+    # minor, not counted as exposure. Only road closures on a commute route count as exposure.
+    minor_commute_count: int = 0
+    minor_commute_label: str | None = None  # "ramp closures" | "minor road conditions"
     coverage: list[CoverageItem]
     counts_by_code: dict[str, int]
     action_required: int

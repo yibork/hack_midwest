@@ -74,6 +74,9 @@ News alone does not trigger closure. Missing data is marked unknown. Recipient s
 
 ## Resources
 
+Technical details: [architecture](docs/architecture.md) (pipeline, agents, caching, rate limits, scheduled re-evaluations) · [sources](docs/sources.md)
+
+
 [Strands SDK](https://github.com/strands-agents/sdk-python) ·
 [Akamai starter kit](https://github.com/akamai-developers/akamai-workshop-hackmidwest) ·
 [NWS API](https://www.weather.gov/documentation/services-web-api) ·

@@ -125,6 +125,8 @@ export interface PeopleSummary {
   params: Record<string, string | number>;
   clock: DecisionClock;
   exposed_count: number;
+  minor_commute_count: number;
+  minor_commute_label: string | null;
   coverage: CoverageItem[];
   counts_by_code: Record<string, number>;
   action_required: number;

@@ -42,9 +42,23 @@ def people_summary(db: Session, rec: models.Recommendation, facility: models.Fac
     """Coverage, decision clock and exposure for the recommended posture (default parameters)."""
     if facility.temporary:
         return None
+    from .agents.local.facts import RAMP
     from .notify.notices import plan_for
 
-    return plan_for(db, facility, rec, rec.posture).summary()
+    plan = plan_for(db, facility, rec, rec.posture)
+    summary = plan.summary()
+    # Reconcile with road facts: conditions (not closures) inside commute corridors are minor.
+    minor = [e.value for e in db.scalars(select(models.Evidence).where(
+        models.Evidence.id.in_(rec.evidence_ids), models.Evidence.kind == "local_fact"))
+        if isinstance(e.value, dict) and e.value.get("fact_type") == "road_condition"
+        and e.value.get("affected_employee_ids")]
+    if minor:
+        commuting = {i.employee.id for i in plan.impacts if i.onsite_expected and not i.exposed}
+        touched = commuting & {eid for v in minor for eid in v["affected_employee_ids"]}
+        ramps = all(RAMP.search(f"{v.get('title', '')} {v.get('supporting_quote', '')}") for v in minor)
+        summary.minor_commute_count = len(touched)
+        summary.minor_commute_label = "ramp closures" if ramps else "minor road conditions"
+    return summary
 
 
 def recommendation_detail(db: Session, rec: models.Recommendation) -> schemas.RecommendationDetail:
