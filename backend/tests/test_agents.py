@@ -1,0 +1,277 @@
+"""Agent safety tests: DispatchGuard, writer validation, deterministic fallback. No network."""
+import json
+import uuid
+from datetime import timedelta
+from types import SimpleNamespace
+
+import pytest
+from sqlalchemy import select
+from strands.hooks import BeforeToolCallEvent
+from strands.models import Model
+
+from app import pipeline
+from app.agents import notify_agent, runtime, weather_agent, writer_agent
+from app.agents.hooks import BLOCKED_MESSAGE, DispatchGuard
+from app.db import SessionLocal, utcnow
+from app.models import Decision, Facility, Notification, Recommendation, RecordEvent
+from app.schemas import DecisionIn, Evidence
+from app.seed import FACILITY_ID, seed
+from app.services import record_decision
+from app.sources import nws
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _seeded():
+    seed()
+
+
+def events(event_type: str) -> list[RecordEvent]:
+    with SessionLocal() as s:
+        return list(s.scalars(select(RecordEvent).where(RecordEvent.event_type == event_type)))
+
+
+# ---------------------------------------------------------------- fakes
+
+def _ev(kind, value, units=None):
+    now = utcnow()
+    return Evidence(id=uuid.uuid4().hex, source="nws", kind=kind, value=value, units=units, status="ok",
+                    retrieved_at=now, valid_until=now + timedelta(hours=1), relevance_note="canned")
+
+
+@pytest.fixture
+def canned_nws(monkeypatch):
+    """Calm weather, no network."""
+    def alerts(lat, lon):
+        return [], _ev("active_alerts", {"count": 0, "alerts": []})
+
+    def forecast(lat, lon, now=None):
+        start = (now or utcnow()).replace(minute=0, second=0, microsecond=0)
+        hours = [{"time": (start + timedelta(hours=h)).isoformat(), "wind_mph": 8.0, "gust_mph": 14.0}
+                 for h in range(24)]
+        return [_ev("point", {"timeZone": "America/Chicago"}),
+                _ev("hourly_forecast", {"periods": []}),
+                _ev("wind_forecast", {"hours": hours, "peak_gust_mph": 14.0}, "mph")], {"office": "EAX"}
+
+    monkeypatch.setattr(nws, "get_active_alerts_for_point", alerts)
+    monkeypatch.setattr(nws, "collect_forecast_evidence", forecast)
+    monkeypatch.setattr(nws, "get_point", lambda lat, lon: ({"timeZone": "America/Chicago"}, None))
+
+
+class FailingModel(Model):
+    """A model whose endpoint is unreachable."""
+
+    def update_config(self, **kwargs):
+        pass
+
+    def get_config(self):
+        return {}
+
+    async def structured_output(self, output_model, prompt, system_prompt=None, **kwargs):
+        raise ConnectionError("LLM endpoint unreachable")
+        yield  # pragma: no cover
+
+    async def stream(self, messages, tool_specs=None, system_prompt=None, **kwargs):
+        raise ConnectionError("LLM endpoint unreachable")
+        yield  # pragma: no cover
+
+
+class ScriptedModel(Model):
+    """Replays canned turns: each turn is a list of (tool_name, input) calls, or a final text."""
+
+    def __init__(self, turns):
+        self.turns = list(turns)
+
+    def update_config(self, **kwargs):
+        pass
+
+    def get_config(self):
+        return {}
+
+    async def structured_output(self, output_model, prompt, system_prompt=None, **kwargs):
+        raise NotImplementedError
+        yield  # pragma: no cover
+
+    async def stream(self, messages, tool_specs=None, system_prompt=None, **kwargs):
+        turn = self.turns.pop(0) if self.turns else "done"
+        yield {"messageStart": {"role": "assistant"}}
+        if isinstance(turn, str):
+            yield {"contentBlockStart": {"start": {}}}
+            yield {"contentBlockDelta": {"delta": {"text": turn}}}
+            yield {"contentBlockStop": {}}
+            yield {"messageStop": {"stopReason": "end_turn"}}
+            return
+        for name, args in turn:
+            yield {"contentBlockStart": {"start": {"toolUse": {"toolUseId": uuid.uuid4().hex, "name": name}}}}
+            yield {"contentBlockDelta": {"delta": {"toolUse": {"input": json.dumps(args)}}}}
+            yield {"contentBlockStop": {}}
+        yield {"messageStop": {"stopReason": "tool_use"}}
+
+
+def use_model(monkeypatch, model):
+    monkeypatch.setattr(runtime, "llm_configured", lambda: True)
+    monkeypatch.setattr(runtime, "build_model", lambda: model)
+
+
+def make_decision() -> tuple[Recommendation, Decision]:
+    with SessionLocal() as db:
+        rec = pipeline.evaluate_facility(db, db.get(Facility, FACILITY_ID))
+        d = record_decision(db, rec, DecisionIn(manager_name="Test Manager", action="override",
+                                                final_posture="closure", reason="test"))
+        return rec, d
+
+
+# ---------------------------------------------------------------- DispatchGuard
+
+def _tool_event(name, state):
+    return BeforeToolCallEvent(agent=SimpleNamespace(name="notify_agent"), selected_tool=None,
+                               tool_use={"toolUseId": "t1", "name": name, "input": {"employee_id": "emp-001"}},
+                               invocation_state=state)
+
+
+@pytest.mark.parametrize("state", [{}, {"decision_id": None}, {"decision_id": "does-not-exist"},
+                                   {"decision_id": 123}])
+def test_dispatch_guard_cancels_send_without_decision(state):
+    before = len(events("dispatch_blocked"))
+    ev = _tool_event("send_push", {**state, "evaluation_id": "e1", "facility_id": FACILITY_ID})
+    DispatchGuard().check(ev)
+    assert ev.cancel_tool == BLOCKED_MESSAGE
+    blocked = events("dispatch_blocked")
+    assert len(blocked) == before + 1
+    assert blocked[-1].payload["tool"] == "send_push"
+
+
+def test_dispatch_guard_allows_send_with_stored_decision(canned_nws):
+    _, d = make_decision()
+    ev = _tool_event("send_email", {"decision_id": d.id})
+    DispatchGuard().check(ev)
+    assert ev.cancel_tool is False
+
+
+def test_dispatch_guard_ignores_non_send_tools():
+    ev = _tool_event("fetch_alerts_for_facility", {})
+    DispatchGuard().check(ev)
+    assert ev.cancel_tool is False
+
+
+def test_agent_send_without_decision_is_blocked_end_to_end(monkeypatch):
+    """A real Strands agent loop: the model asks to send, the guard cancels, nothing is sent."""
+    model = ScriptedModel([[("send_push", {"employee_id": "emp-001", "message": "Avery: closed"})], "done"])
+    use_model(monkeypatch, model)
+    agent = runtime.make_agent("notify_agent", "test", [notify_agent.send_push, notify_agent.send_email])
+    state = runtime.new_state(evaluation_id="guard-e2e", facility_id=FACILITY_ID, decision_id="nope")
+    state.update(recipients={}, posture="closure")
+    before = len(events("dispatch_blocked"))
+    runtime.invoke(agent, "send", state, timeout=10)
+    assert len(events("dispatch_blocked")) == before + 1
+    with SessionLocal() as s:
+        ends = s.scalars(select(RecordEvent).where(RecordEvent.evaluation_id == "guard-e2e",
+                                                   RecordEvent.event_type == "agent.tool_call_end")).all()
+    assert ends and "cancelled" in ends[0].payload["summary"]
+
+
+# ---------------------------------------------------------------- writer validation
+
+FACTS = {"triggers": [{"threshold": 58, "observed": 61.0, "units": "mph"}],
+         "evidence": [{"retrieved": "11:13 CDT"}], "operating_date": "Monday, October 12, 2026"}
+
+
+def test_writer_rejects_wrong_posture():
+    text = "NWS data retrieved 11:13 CDT shows gusts of 61.0 mph, so the office should move to telework."
+    reason = writer_agent.validate_rationale(text, "closure", FACTS)
+    assert reason and "telework" in reason
+
+
+def test_writer_rejects_number_not_in_facts():
+    text = "Closure is recommended: NWS forecast gusts of 65 mph (retrieved 11:13 CDT)."
+    reason = writer_agent.validate_rationale(text, "closure", FACTS)
+    assert reason and "65" in reason
+
+
+def test_writer_accepts_bare_posture_label():
+    text = ("The rules engine recommends a normal operating posture for Monday, October 12 "
+            "based on NWS data retrieved 11:13 CDT.")
+    assert writer_agent.validate_rationale(text, "normal", FACTS) is None
+    # ...but naming a different posture is still rejected
+    assert writer_agent.validate_rationale(text + " Telework is optional.", "normal", FACTS)
+
+
+def test_writer_rejects_missing_posture_and_too_long():
+    assert "does not state" in writer_agent.validate_rationale("Gusts of 61.0 mph.", "closure", FACTS)
+    assert "too long" in writer_agent.validate_rationale("closure " * 121, "closure", FACTS)
+
+
+def test_writer_accepts_faithful_paragraph():
+    text = ("For Monday, October 12, the rules engine recommends closure: NWS forecast gusts reach "
+            "61.0 mph in the commute window, above the 58 mph threshold (retrieved 11:13 CDT). "
+            "A manager must approve before staff are notified.")
+    assert writer_agent.validate_rationale(text, "closure", FACTS) is None
+
+
+def test_rejected_draft_falls_back_to_template(monkeypatch, canned_nws):
+    with SessionLocal() as db:
+        rec = pipeline.evaluate_facility(db, db.get(Facility, FACILITY_ID))  # calm -> normal
+    from app.schemas import Recommendation as RecSchema
+    rec_s = RecSchema.model_validate(rec)
+    monkeypatch.setattr(writer_agent, "draft", lambda *a, **k: "The office should switch to telework today.")
+    before = len(events("writer_rejected"))
+    text, source = writer_agent.write_rationale(
+        rec_s, [], facility_name="X", tz="America/Chicago",
+        state=runtime.new_state(evaluation_id=rec.evaluation_id, facility_id=FACILITY_ID), timeout=5)
+    assert source == "template" and text == rec_s.rationale
+    rejected = events("writer_rejected")
+    assert len(rejected) == before + 1 and "telework" in rejected[-1].payload["reason"]
+
+
+# ---------------------------------------------------------------- pipeline fallback
+
+def test_pipeline_falls_back_when_model_unreachable(monkeypatch, canned_nws):
+    use_model(monkeypatch, FailingModel())
+    with SessionLocal() as db:
+        rec = pipeline.evaluate_facility(db, db.get(Facility, FACILITY_ID))
+        assert rec.rationale_source == "template"
+        assert rec.posture == "normal"
+        assert rec.rationale.startswith("For USDA Kansas City Field Office")
+        kinds = {e.kind for e in weather_agent.evidence_for(rec.evaluation_id)}
+        assert {"active_alerts", "wind_forecast"} <= kinds  # tools were called directly
+        unavailable = db.scalars(select(RecordEvent).where(RecordEvent.evaluation_id == rec.evaluation_id,
+                                                           RecordEvent.event_type == "agent_unavailable")).all()
+        assert {e.payload["agent"] for e in unavailable} == {"weather_agent", "writer_agent"}
+        assert all("unreachable" in e.payload["reason"] for e in unavailable)
+
+
+def test_pipeline_without_llm_config_uses_template(canned_nws):
+    with SessionLocal() as db:
+        rec = pipeline.evaluate_facility(db, db.get(Facility, FACILITY_ID))
+    assert rec.rationale_source == "template"
+
+
+def test_notify_falls_back_to_templates_when_model_unreachable(monkeypatch, canned_nws):
+    _, d = make_decision()
+    use_model(monkeypatch, FailingModel())
+    with SessionLocal() as db:
+        notes = notify_agent.notify(db, d.id)
+    assert len(notes) == 30
+    assert all(n.message for n in notes if n.included)
+    sent = [e for e in events("notification.sent") if e.payload["decision_id"] == d.id]
+    assert sent and all(e.payload["drafted_by"] == "template" for e in sent)
+
+
+def test_notify_agent_sends_only_to_included_with_decision(monkeypatch, canned_nws):
+    """Scripted agent sends one good message, one to an excluded employee, then stops.
+    The good one is sent as drafted; the excluded one is refused; the rest get templates."""
+    _, d = make_decision()
+    with SessionLocal() as db:
+        _, _, recipients = notify_agent.recipients_for_decision(db, db.get(Decision, d.id))
+    inc = next(r for r in recipients if r.included and r.channel == "push" and r.language == "en")
+    exc = next(r for r in recipients if not r.included)
+    msg = f"{inc.name.split()[0]}: this applies to you. The office is closed today. Do not report."
+    model = ScriptedModel([[("send_push", {"employee_id": inc.employee_id, "message": msg}),
+                            ("send_push", {"employee_id": exc.employee_id, "message": "hi"})], "done"])
+    use_model(monkeypatch, model)
+    with SessionLocal() as db:
+        notes = {n.employee_id: n for n in notify_agent.notify(db, d.id)}
+    assert notes[inc.employee_id].message == msg
+    assert notes[exc.employee_id].included is False and notes[exc.employee_id].sent_at is None
+    with SessionLocal() as s:
+        n_rows = s.scalars(select(Notification).where(Notification.decision_id == d.id)).all()
+    assert len(n_rows) == 30  # exactly one per considered employee

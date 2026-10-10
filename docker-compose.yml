@@ -1,0 +1,37 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env  # repo root: OPENAI_* credentials etc. Not baked into the image.
+        required: false
+    environment:
+      DATABASE_URL: postgresql://closurecall:closurecall@postgres:5432/closurecall
+      # No .env file inside the container; values come from env_file above.
+      CLOSURECALL_DOTENV: "0"
+    volumes:
+      - snapshots:/app/data/snapshots
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: closurecall
+      POSTGRES_PASSWORD: closurecall
+      POSTGRES_DB: closurecall
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U closurecall"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:
+  snapshots:

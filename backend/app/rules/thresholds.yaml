@@ -1,0 +1,103 @@
+# Closure Call operating-posture policy.
+#
+# Read by rules/engine.py. Each rule fires when ANY clause under condition.any matches.
+# When several rules fire, the most restrictive posture wins:
+#   closure > telework > early_dismissal > delayed_arrival > normal
+#
+# Clause types:
+#   alert          an active NWS alert covering the facility. Filters (all optional):
+#                  events, severity, urgency. window: operating_hours | operating_day
+#   forecast_gust  forecast gust in the commute window. min_mph (inclusive), below_mph (exclusive)
+#
+# Windows (facility local time, on the operating date):
+#   commute_window   = open_time - 2h  .. open_time
+#   operating_hours  = open_time       .. close_time
+#   departure_window = close_time      .. close_time + 2h
+#   operating_day    = commute start   .. departure end
+#
+# EVERY citation below is a placeholder until a human confirms it against the source document.
+
+version: "0.1.0-draft"
+commute_window_hours: 2
+departure_window_hours: 2
+
+rules:
+  - id: extreme_immediate_alert
+    description: Active NWS alert with severity Extreme and urgency Immediate during operating hours
+    hazard: any
+    condition:
+      any:
+        - type: alert
+          severity: [Extreme]
+          urgency: [Immediate]
+          window: operating_hours
+    posture: closure
+    citation: "TODO: verify - NWS CAP severity/urgency definitions; agency facility closure policy"
+    justification: >
+      Extreme/Immediate alerts signal an extraordinary threat to life or property requiring
+      action now. Staff should not travel to or remain at the facility.
+
+  - id: high_wind
+    description: High Wind Warning active, or forecast gusts >= 58 mph during the commute window
+    hazard: wind
+    condition:
+      any:
+        - type: alert
+          events: [High Wind Warning, Extreme Wind Warning]
+          window: operating_day
+        - type: forecast_gust
+          min_mph: 58
+          window: commute
+    posture: closure
+    citation: "TODO: verify - typical NWS High Wind Warning criteria (sustained 40+ mph or gusts 58+ mph); local WFO criteria may differ"
+    justification: >
+      Gusts at High Wind Warning levels make driving hazardous, especially for high-profile
+      vehicles, and bring down trees and power lines along access routes.
+
+  - id: wind_advisory
+    description: Wind Advisory active, or forecast gusts 46-57 mph during the commute window
+    hazard: wind
+    condition:
+      any:
+        - type: alert
+          events: [Wind Advisory]
+          window: operating_day
+        - type: forecast_gust
+          min_mph: 46
+          below_mph: 58
+          window: commute
+    posture: delayed_arrival
+    citation: "TODO: verify - typical NWS Wind Advisory criteria (sustained 31-39 mph or gusts 46-57 mph)"
+    justification: >
+      Advisory-level winds make the morning commute difficult; a delayed arrival lets crews
+      clear debris and lets winds ease before staff travel.
+
+  - id: flood
+    description: Flash Flood Warning or Flood Warning covering the facility
+    hazard: flood
+    condition:
+      any:
+        - type: alert
+          events: [Flash Flood Warning, Flood Warning, Flash Flood Emergency]
+          window: operating_day
+    posture: telework
+    citation: "TODO: verify - NWS flood warning product definitions; agency telework policy"
+    justification: >
+      Flooded roads are the leading cause of flood deaths ("turn around, don't drown").
+      Work can continue remotely without putting staff on the roads.
+
+  - id: convective
+    description: Severe Thunderstorm Warning or Tornado Warning during operating hours
+    hazard: convective
+    condition:
+      any:
+        - type: alert
+          events: [Severe Thunderstorm Warning, Tornado Warning]
+          window: operating_hours
+    # Starts after opening: dismiss early. Starts at or before opening: delay arrival.
+    posture: early_dismissal
+    posture_if_onset_before_open: delayed_arrival
+    citation: "TODO: verify - NWS warning definitions; agency shelter-in-place and dismissal policy"
+    justification: >
+      Warnings are short-fused. If one begins before opening, delaying arrival keeps staff off
+      the road during the threat; if it begins mid-day, release staff once it is safe to travel.
