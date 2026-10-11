@@ -12,7 +12,7 @@ from .db import utcnow
 from .notify import exposure
 from .notify.plan import load_inputs
 from .services import store_evidence
-from .sources import forecaster, local_signals as ls, nws, nwps
+from .sources import airnow, forecaster, local_signals as ls, nws, nwps
 
 
 def request(db, rec, *, launch=True):
@@ -78,6 +78,7 @@ def run(db, row, rec):
             step("NWS facility alerts", lambda: weather_agent.fetch_alerts(fac, row.id))
             step("NWS hourly and gridpoint forecast", lambda: weather_agent.fetch_forecast(fac, row.id, operating_date=rec.operating_date))
             step("NWS employee home zones", lambda: exposure.collect(fac.id, row.id, people, save_raw=True))
+            step("EPA AirNow air quality", lambda: save(airnow.collect(fac, rec.operating_date)))
             from .demo_location import unknown, local_feeds
             step("NOAA KCDM7 river gauge", lambda: save([unknown("river_categories", "nwps")] if fac.demo_origin_id else nwps.collect(windows)))
             fresh += weather_agent.evidence_for(row.id)
@@ -158,6 +159,7 @@ def run(db, row, rec):
             # Fresh statuses reflect actual response validity, not simply HTTP success.
             for title, kinds in {"NWS facility alerts": {"active_alerts"}, "NWS hourly and gridpoint forecast": {"wind_forecast", "hourly_forecast"},
                                  "NWS employee home zones": {"home_zone_alerts"}, "NOAA KCDM7 river gauge": {"river_categories", "river_forecast"},
+                                 "EPA AirNow air quality": {"air_quality_current", "air_quality_forecast"},
                                  "NWS EAX forecaster products": {"forecaster_afd", "forecaster_hwo"}}.items():
                 if any(e.kind in kinds and e.status != "ok" for e in fresh):
                     next(c for c in checks if c["source"] == title)["status"] = "failed"

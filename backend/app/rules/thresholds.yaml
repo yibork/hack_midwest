@@ -16,8 +16,11 @@
 #   operating_day    = commute start   .. departure end
 #
 # Source definitions are verified; posture mappings remain this prototype's facility policy.
-version: "1.0.2"
+version: "1.0.3"
 change_log:
+  - version: "1.0.3"
+    date: "2026-10-11"
+    changes: "Added supplementary AirNow AQI rules: supervisor accommodation suggestions at 101–150, telework at 151–200, closure at 201+. EPA categories are verified; these posture mappings are facility choices."
   - version: "1.0.2"
     date: "2026-10-11"
     changes: "Added verified Winter Storm Warning, Ice Storm Warning and Winter Weather Advisory definitions with explicit facility posture mappings; EAX numeric criteria remain local references, not national thresholds."
@@ -31,6 +34,64 @@ commute_window_hours: 2
 departure_window_hours: 2
 
 rules:
+  - id: air_quality_sensitive
+    description: Unhealthy for Sensitive Groups during operating hours; supervisor accommodation suggestions, no posture change
+    hazard: air_quality
+    condition:
+      any:
+        - type: air_quality
+          min_aqi: 101
+          below_aqi: 151
+          window: operating_hours
+    posture: normal
+    group: facility
+    verified: true
+    citation: &epa_aqi
+      title: Air Quality Index (AQI) Basics
+      publisher: U.S. EPA / AirNow
+      url: https://www.airnow.gov/aqi/aqi-basics/
+      section_or_page: "AQI Basics for Ozone and Particle Pollution: six-category table"
+      retrieved_at: "2026-10-11T06:00:00Z"
+    justification: >
+      EPA defines AQI 101–150 as Unhealthy for Sensitive Groups. Facility policy v1.0
+      keeps the operating posture unchanged while supervisors offer unscheduled telework
+      to scheduled onsite employees with an accommodation on file; no medical details are disclosed.
+
+  - id: air_quality_telework
+    description: Unhealthy air quality during operating hours
+    hazard: air_quality
+    condition:
+      any:
+        - type: air_quality
+          min_aqi: 151
+          below_aqi: 201
+          window: operating_hours
+    posture: telework
+    group: facility
+    verified: true
+    citation: *epa_aqi
+    justification: >
+      EPA defines AQI 151–200 as Unhealthy, with possible effects on the general public.
+      Facility policy v1.0 maps this category to telework to reduce onsite exposure;
+      emergency duties and employee eligibility remain governed by agency instructions.
+
+  - id: air_quality_closure
+    description: Very Unhealthy or Hazardous air quality, current or forecast for the target day
+    hazard: air_quality
+    condition:
+      any:
+        - type: air_quality
+          min_aqi: 201
+          window: operating_day
+    posture: closure
+    group: facility
+    verified: true
+    citation: *epa_aqi
+    justification: >
+      EPA defines AQI 201–300 as Very Unhealthy and 301+ as Hazardous. Facility policy v1.0
+      closes onsite non-emergency work at 201 or higher; emergency staff follow agency instructions.
+      The highest fresh current or target-day forecast AQI applies; this is not an EPA closure mandate.
+
   - id: extreme_immediate_alert
     description: Active NWS alert with severity Extreme and urgency Immediate during operating hours
     hazard: any

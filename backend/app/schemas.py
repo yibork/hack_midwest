@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 Posture = Literal["normal", "delayed_arrival", "early_dismissal", "telework", "closure"]
 # Least to most restrictive. The engine picks the highest-ranked posture among fired rules.
 POSTURE_ORDER: list[str] = ["normal", "delayed_arrival", "early_dismissal", "telework", "closure"]
-EvidenceSource = Literal["nws", "nwps", "modot", "roster", "demo", "local", "human", "sweep"]
+EvidenceSource = Literal["nws", "nwps", "modot", "roster", "demo", "local", "human", "sweep", "airnow"]
 EvidenceStatus = Literal["ok", "unknown", "stale"]
 Confidence = Literal["high", "medium", "low"]
 
@@ -53,7 +53,7 @@ class Facility(ORMModel):
 Role = Literal["employee", "supervisor", "facility_manager", "facility_ops", "security_desk", "contractor"]
 Designation = Literal["emergency", "telework_ready", "non_telework"]
 AccommodationNeed = Literal["early_notice", "mobility_early_dismissal", "text_only", "screen_reader",
-                            "large_text", "plain_language"]
+                            "large_text", "plain_language", "air_quality_sensitive"]
 AccessLevel = Literal["standard", "emergency", "facility_ops", "contractor_badge", "escort_required"]
 Channel = Literal["push", "email"]
 ShiftStatus = Literal["onsite", "telework", "leave", "day_off"]

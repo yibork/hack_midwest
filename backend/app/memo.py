@@ -97,7 +97,7 @@ def render(db, decision):
     evidence_rows = []
     for e in evidence:
         value = e.value if isinstance(e.value, dict) else {}
-        authority = value.get("authority") or {"nws": "official federal", "nwps": "official federal", "human": "human reported", "demo": "SIMULATED facility policy", "roster": "facility roster"}.get(e.source, "Not recorded")
+        authority = value.get("authority") or {"nws": "official federal", "nwps": "official federal", "airnow": "official federal", "human": "human reported", "demo": "SIMULATED facility policy", "roster": "facility roster"}.get(e.source, "Not recorded")
         label = "REPLAY · " if e.scenario_kind == "replay" else "SIMULATED · " if simulated(e) else ""
         digest = e.saved_copy_hash or e.snapshot_hash
         saved = link(f"/api/snapshots/{digest}", "Saved copy" + (" (normalized evidence)" if e.saved_copy_kind == "normalized" else "")) if digest else "Saved response not available"

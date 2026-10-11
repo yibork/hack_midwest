@@ -72,7 +72,7 @@ def _alerts_from(value: dict) -> list[ZoneAlert]:
 
 
 def load(db: Session, facility_id: str, evaluation_id: str | None, now: datetime | None = None,
-         evidence_ids: list[str] | None = None) -> Exposure:
+         evidence_ids: list[str] | None = None, target_day=None) -> Exposure:
     """Exposure as of the evaluation: its home_zone_alerts row, plus road closures (MoDOT evidence)
     and, in DEMO_MODE, simulated alerts/closures that are still valid."""
     now = now or utcnow()
@@ -107,5 +107,17 @@ def load(db: Session, facility_id: str, evaluation_id: str | None, now: datetime
         elif e.kind == "simulated_zone_alert" and v.get("zone"):
             alerts.append(ZoneAlert(zone=v["zone"], event=v.get("event") or "Winter Storm Warning",
                                     onset=nws.parse_dt(v.get("onset")), ends=nws.parse_dt(v.get("ends"))))
-    return Exposure(alerts=tuple(alerts), closed_routes=frozenset(routes),
+    sensitive = False
+    if target_day is not None:
+        from ..sources.airnow import candidates
+        from ..models import Facility
+        facility = db.get(Facility, facility_id)
+        air = [schemas.Evidence.model_validate(e) for e in db.scalars(select(Evidence).where(
+            scope, Evidence.source == "airnow"))]
+        values = candidates(air, target_day, now, facility.timezone)
+        sensitive = bool(values and 101 <= values[0][0] <= 150)
+        if sensitive:
+            from ..rules.engine import compute_windows, load_policy
+            sensitive = now < compute_windows(schemas.Facility.model_validate(facility), now, load_policy(), target_day).close
+    return Exposure(alerts=tuple(alerts), closed_routes=frozenset(routes), air_quality_sensitive=sensitive,
                     closed_for=tuple((k, tuple(sorted(v))) for k, v in sorted(closed_for.items())))

@@ -236,6 +236,8 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
     commute_passed = now >= w.commute_end
     commute_peak = peak_gust(wind_ev, w.commute_start, w.commute_end)
     departure_peak = peak_gust(wind_ev, w.departure_start, w.departure_end)
+    from ..sources.airnow import candidates
+    air_values = candidates(evidence_list, w.operating_date, now, facility.timezone)
 
     # 1. Fire rules. One trigger per rule (first matching clause).
     triggers: list[Trigger] = []
@@ -251,6 +253,19 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
                 t = _check_gust(rule, clause, commute_peak, wind_ev)
             elif clause["type"] == "forecast_wind":
                 t = _check_sustained(rule, clause, wind_ev, w)
+            elif clause["type"] == "air_quality":
+                t = None
+                for aqi, ev, row in air_values[:1]:
+                    if aqi < clause["min_aqi"] or aqi >= clause.get("below_aqi", float("inf")):
+                        continue
+                    # Daily forecasts cover operating hours. A fresh current observation
+                    # can inform forthcoming hours, but not hours already finished.
+                    if clause.get("window") == "operating_hours" and now >= w.close:
+                        continue
+                    t = Trigger(rule_id=rule["id"], description=rule["description"], posture=rule["posture"],
+                        threshold=clause["min_aqi"], observed=aqi, margin=aqi - clause["min_aqi"], units="AQI",
+                        evidence_id=ev.id, citation=rule["citation"])
+                    break
             else:
                 raise ValueError(f"unknown clause type {clause['type']!r} in rule {rule['id']}")
             if t:
@@ -384,6 +399,10 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
             elif c["type"] == "forecast_wind" and not commute_passed:
                 alert_changes.append(f"Sustained winds reaching {c['min_mph']:g} mph for one hour during "
                                      f"{window_label} would move this to {rule['posture']}.")
+            elif c["type"] == "air_quality":
+                observed = f"AQI {air_values[0][0]} / {c['min_aqi']}" if air_values else f"AQI unknown / {c['min_aqi']}"
+                alert_changes.append(f"{observed} for {rule['posture']}: fresh current or forecast air quality reaching "
+                                     f"{c['min_aqi']} for {w.operating_date} would move this to {rule['posture']}.")
     changes += [text for _, text in sorted(gust_changes)] + alert_changes + local.changes
     for t in triggers:
         if t.units is None and t.rule_id != "access_route_closed":
@@ -419,6 +438,10 @@ def template_rationale(rec: Recommendation, facility: Facility, w: Windows, aler
     if rec.triggers:
         for t in rec.triggers:
             if t.units:
+                if t.units == "AQI":
+                    parts.append(f"Air quality rule '{t.rule_id}': AQI {t.observed} meets {t.threshold} "
+                                 f"(margin {t.margin:+g}); highest fresh current or target-day forecast applies.")
+                    continue
                 kind = "sustained wind" if "sustained forecast" in t.description else "peak gust"
                 parts.append(f"Rule '{t.rule_id}' fired: forecast {kind} of {t.observed} {t.units} in the "
                              f"commute window meets the {t.threshold} {t.units} threshold "

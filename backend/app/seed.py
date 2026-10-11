@@ -283,6 +283,14 @@ def seed() -> None:
                 person.commute_routes = row[13]
                 person.email = _email(row[1])
 
+        # Private needs are additive on the synthetic roster, including an existing DB.
+        # Public employee records expose only accommodation_on_file, never the type.
+        for key in ("sam", "priya"):
+            person = db.get(Employee, emp_id(key))
+            if person is not None:
+                person.accommodation_needs = list(dict.fromkeys([*(person.accommodation_needs or []), "air_quality_sensitive"]))
+                person.accommodation_on_file = True
+
         # Shifts from yesterday (overnight shifts run into today) through the next 8 days, from the
         # calendar: weekdays follow the roster; weekends and federal holidays only the weekend crew.
         # Rows are rewritten so the schedule stays consistent (synthetic demo data).
