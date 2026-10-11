@@ -42,7 +42,7 @@ An onsite employee may need a new reporting time. Someone on leave may need no r
 
 <!-- The main demonstration uses a **synthetic USDA Kansas City field office**, focusing on wind/severe-weather and flooding/access disruption. A national scan demonstrates live evidence at other locations; it is not a claim that every facility or hazard is fully modeled. -->
 
-## USDA: the five deliverables
+<!-- ## USDA: the five deliverables
 
 | Required deliverable | What Closure Call implements | Where to inspect it |
 | --- | --- | --- |
@@ -52,8 +52,22 @@ An onsite employee may need a new reporting time. Someone on leave may need no r
 | **Reconstructable decision record** | Saved evidence, evaluation and decision history, overrides, delivery outcomes, hash verification and printable decision memos | [Decision-record documentation](../docs/decision-record.md), [record implementation](../backend/app/record.py) |
 | **Defensible thresholds** | Versioned policy, structured source citations, published hazard definitions and explicit justification for the prototype’s response choices | [Thresholds page](https://closurecall.duckdns.org/thresholds), [policy YAML](../backend/app/rules/thresholds.yaml), [facility policy](../docs/facility-policy.md) |
 
-Official hazard definitions inform the thresholds; **facility policy determines the proposed response**. These response mappings are prototype choices, not official USDA directives. News alone does not trigger closure, and missing data is marked unknown. Verification of a source definition does not imply agency endorsement of our response.
+Official hazard definitions inform the thresholds; **facility policy determines the proposed response**. These response mappings are prototype choices, not official USDA directives. News alone does not trigger closure, and missing data is marked unknown. Verification of a source definition does not imply agency endorsement of our response. -->
+## USDA: the five deliverables
 
+Choose the **Facility manager** demo role. Start by evaluating a facility, then follow its recommendation through approval, notification and the decision record.
+
+| USDA deliverable | How we implement it | Explore the live app |
+| --- | --- | --- |
+| **1. Working system with live NWS data** | Retrieve real weather alerts and forecasts, alongside supplementary local evidence. | [National scan](https://closurecall.duckdns.org/national) · [Facility evaluation](https://closurecall.duckdns.org/facility) |
+| **2. Recommendation with reasoning** | Show the recommended operating status, supporting evidence, timestamps, threshold comparisons, confidence and what would change the recommendation. Managers can ask follow-up questions before deciding. | [Facility recommendation](https://closurecall.duckdns.org/facility) |
+| **3. Notification package** | Review recipient inclusion and exclusion reasons, drafted instructions and delivery channels. After approval, track employee responses. | [Decide and notify](https://closurecall.duckdns.org/decide) · [Team responses](https://closurecall.duckdns.org/team) |
+| **4. Reconstructable decision record** | Preserve evidence, recommendations, manager decisions and notification outcomes. Inspect saved evidence and printable decision memos. | [Decision record](https://closurecall.duckdns.org/record) |
+| **5. Defensible thresholds** | Show policy versions, source citations and the justification connecting hazard conditions to a proposed operating status. | [Thresholds and citations](https://closurecall.duckdns.org/thresholds) |
+
+**Official sources define hazards; our prototype facility policy defines the proposed response.** The manager makes the final decision. These mappings are not official USDA directives.
+
+*National scan demonstrates live alerts. Use the seeded facility to demonstrate the employee notification workflow; temporary national-scan facilities do not have an employee roster.*
 ## AWS: how we use Strands Agents SDK
 
 ![Strands agents connected to Akamai AI inference, with rules-based recommendations and human approval](../closure-call-strands-agents.png)
@@ -100,7 +114,7 @@ The deployment script currently fetches the latest `main`, rather than pinning t
 
 ## Run locally
 
-Prerequisites: Docker with a recent Docker Compose v2. Run from the repository root (the parent of this `backend` directory):
+<!-- Prerequisites: Docker with a recent Docker Compose v2. Run from the repository root (the parent of this `backend` directory): -->
 
 ```sh
 cp .env.example .env
