@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, setViewer as setApiViewer, type EmployeePublic, type Persona, type Viewers } from "../api";
 
-export type ViewerRole = "facility_manager" | "supervisor" | "security_desk" | "employee";
+export type ViewerRole = "facility_manager" | "supervisor" | "employee" | "security_desk" | "auditor";
 export interface Viewer {
   role: ViewerRole;
   personId: string | null;
@@ -10,12 +10,15 @@ export interface Viewer {
 export const NEEDS_PERSON: ReadonlySet<ViewerRole> = new Set(["employee", "supervisor"]);
 const KEY = "closurecall.viewer";
 const DEFAULT: Viewer = { role: "facility_manager", personId: null };
-const ROLES: ViewerRole[] = ["facility_manager", "supervisor", "security_desk", "employee"];
+const ROLES: ViewerRole[] = ["facility_manager", "supervisor", "employee", "security_desk", "auditor"];
 
-function load(): Viewer {
+export function loadViewer(search = window.location.search): Viewer {
   // /me?as=<employee id> (the link on the ack page) opens My status as that person.
   try {
-    const as = new URLSearchParams(window.location.search).get("as");
+    const params = new URLSearchParams(search);
+    const role = params.get('role') as ViewerRole;
+    if (ROLES.includes(role)) return {role, personId: params.get('person')};
+    const as = params.get("as");
     if (as) return { role: "employee", personId: as };
   } catch {
     /* no URL: ignore */
@@ -74,7 +77,7 @@ const RoleCtx = createContext<Ctx>({ viewer: DEFAULT, viewers: null, ready: true
 /** Demo role switcher state (no real auth). Every API call carries X-Role, and X-Person when set. */
 export function RoleProvider({ children }: { children: ReactNode }) {
   const [viewer, setState] = useState<Viewer>(() => {
-    const v = load();
+    const v = loadViewer();
     setApiViewer(v.role, v.personId);
     save(v); // e.g. the ack page's "View my status" link: remember who we're viewing as
     return v;

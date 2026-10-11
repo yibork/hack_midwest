@@ -53,7 +53,7 @@ def test_calm_is_normal_high_confidence():
     assert rec.triggers == []
     assert rec.confidence == "high"
     assert any("58 mph" in c and "closure" in c and "15 mph" in c for c in rec.what_would_change)
-    assert rec.policy_version.startswith("1.0.0+")
+    assert rec.policy_version.startswith("1.0.1+")
 
 
 def test_extreme_immediate_alert_closes():

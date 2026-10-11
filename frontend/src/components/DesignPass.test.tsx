@@ -56,8 +56,8 @@ it('shows the nearest two thresholds with observed progress, then expands', () =
 it('turns inline evidence IDs and policy codes into readable linked citations', () => {
   const id = 'e'.repeat(32);
   render(<MemoryRouter><CitedAnswer text={`Current normal. [evidence:${id}] [policy:lead_time_confidence]`} /></MemoryRouter>);
-  expect(screen.getByText('[saved evidence 1]').getAttribute('href')).toBe(`/api/evidence/${id}`);
-  expect(screen.getByText('[Forecast lead time]').getAttribute('href')).toBe('/thresholds#lead_time_confidence');
+  expect(screen.getByText('[1]').getAttribute('href')).toBe(`/saved-evidence/${id}`);
+  expect(screen.getByText('[2]').getAttribute('href')).toBe('/thresholds#lead_time_confidence');
   expect(document.body.textContent).not.toContain(id);
 });
 

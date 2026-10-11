@@ -1,4 +1,4 @@
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { RoleProvider, useViewer, type ViewerRole } from "./components/RoleContext";
 import RoleSwitcher from "./components/RoleSwitcher";
 import DecidePage from "./pages/DecidePage";
@@ -14,6 +14,7 @@ import ThresholdsPage from "./pages/ThresholdsPage";
 import { ScenarioBanner } from "./components/DemoScenario";
 import AcknowledgePage from "./pages/AcknowledgePage";
 import SavedCopyPage from "./pages/SavedCopyPage";
+import SavedEvidencePage from './pages/SavedEvidencePage';
 
 const NAV: Record<ViewerRole, { to: string; label: string; hint: string }[]> = {
   facility_manager: [
@@ -30,10 +31,15 @@ const NAV: Record<ViewerRole, { to: string; label: string; hint: string }[]> = {
   supervisor: [{ to: "/team", label: "My team", hint: "Status, acks, exposure" }],
   security_desk: [{ to: "/security", label: "Access list", hint: "Who may enter today" }],
   employee: [{ to: "/me", label: "My status", hint: "What to do today" }],
+  auditor: [{to: '/record', label: 'Record', hint: 'Verified, read-only audit'}, {to: '/thresholds', label: 'Thresholds', hint: 'Policy and citations'}],
 };
 
 function Shell() {
   const { viewer, ready } = useViewer();
+  const location = useLocation();
+  const fixed = new URLSearchParams(location.search).has('role');
+  const query = new URLSearchParams({role: viewer.role, ...(viewer.personId ? {person: viewer.personId} : {})});
+  const fixedQuery = fixed ? `?${query}` : '';
   const nav = NAV[viewer.role];
   const home = nav[0].to;
   return (
@@ -48,7 +54,7 @@ function Shell() {
           {nav.map((n) => (
             <li key={n.to} className="shrink-0">
               <NavLink
-                to={n.to}
+                to={`${n.to}${fixedQuery}`}
                 className={({ isActive }) =>
                   `block px-4 py-2 border-l-4 ${isActive ? "active font-semibold" : "border-transparent"}`
                 }
@@ -65,6 +71,7 @@ function Shell() {
       </nav>
       <main className="min-w-0 flex-1 p-4 md:p-6">
         <ScenarioBanner />
+        {viewer.role === 'auditor' && <p className="mb-4 rounded border border-slate-300 bg-white p-3 font-semibold">Read-only · Auditor — no operational actions available</p>}
         {!ready ? (
           <div role="status" className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">
             Choose who you're viewing as in the menu.
@@ -84,11 +91,12 @@ function Shell() {
             </>
           )}
           {(viewer.role === "facility_manager" || viewer.role === "supervisor") && <Route path="/team" element={<TeamPage />} />}
+          {viewer.role === 'auditor' && <><Route path="/record" element={<RecordPage />} /><Route path="/thresholds" element={<ThresholdsPage />} /></>}
           {(viewer.role === "facility_manager" || viewer.role === "security_desk") && (
             <Route path="/security" element={<SecurityPage />} />
           )}
           {viewer.role === "employee" && <Route path="/me" element={<MyStatusPage />} />}
-          <Route path="*" element={<Navigate to={home} replace />} />
+          <Route path="*" element={<Navigate to={`${home}${fixedQuery}`} replace />} />
         </Routes>
         )}
       </main>
@@ -100,7 +108,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/acknowledge/:id" element={<AcknowledgePage />} />
-      <Route path="/saved-copy/:digest" element={<SavedCopyPage />} />
+      <Route path="/saved-copy/:digest" element={<RoleProvider><SavedCopyPage /></RoleProvider>} />
+      <Route path="/saved-evidence/:id" element={<RoleProvider><SavedEvidencePage /></RoleProvider>} />
       <Route path="*" element={<RoleProvider><Shell /></RoleProvider>} />
     </Routes>
   );

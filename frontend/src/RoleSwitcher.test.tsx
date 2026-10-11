@@ -85,9 +85,28 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.history.replaceState(null, '', '/');
 });
 
 describe("demo role switcher", () => {
+  it('auditor sees only Record and Thresholds navigation with a read-only label', async () => {
+    renderApp();
+    await act(async () => selectRole('auditor'));
+    await screen.findByText('Decision record');
+    expect(screen.getByText(/Read-only · Auditor/)).toBeTruthy();
+    const nav = screen.getByRole('navigation', {name: 'Primary navigation'});
+    expect([...nav.querySelectorAll('a')].map(a => a.getAttribute('href'))).toEqual(['/record', '/thresholds']);
+    expect(screen.queryByRole('button', {name: 'Ask'})).toBeNull();
+    expect(requests.some(r => r.path.includes('/recommendations/latest'))).toBe(false);
+  });
+
+  it('URL role and person override remembered state for a fixed demo window', async () => {
+    localStorage.setItem('closurecall.viewer', JSON.stringify({role: 'facility_manager', personId: null}));
+    window.history.replaceState(null, '', '/me?role=employee&person=emp-031');
+    renderApp('/me?role=employee&person=emp-031');
+    await screen.findByText('Hello, Sam');
+    expect(requests.filter(r => r.path === '/api/me').every(r => r.headers['X-Person'] === 'emp-031')).toBe(true);
+  });
   it("switching to Employee picks the first demo persona and shows My status", async () => {
     renderApp();
     await waitFor(() => expect(requests.some((r) => r.path === "/api/viewers")).toBe(true));

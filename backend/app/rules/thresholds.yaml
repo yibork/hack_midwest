@@ -16,8 +16,11 @@
 #   operating_day    = commute start   .. departure end
 #
 # Source definitions are verified; posture mappings remain this prototype's facility policy.
-version: "1.0.0"
+version: "1.0.1"
 change_log:
+  - version: "1.0.1"
+    date: "2026-10-11"
+    changes: "Added facility-only verified forecaster confidence context; all posture thresholds and lead-time caps unchanged."
   - version: "1.0.0"
     date: "2026-10-11"
     changes: "Verified EAX wind bands (unchanged), CAP fields, KCDM7 stages and OPM obligations; distinguished facility decisions and FEB coordination from federal hazard definitions. Added sustained-wind checks."
@@ -273,3 +276,11 @@ references:
     verified: true
     citation: *facility_policy
     justification: These corroboration thresholds belong to this prototype. Local context can support a weather finding without replacing official evidence or lowering the recommended posture.
+  - id: forecaster_context
+    group: facility
+    description: Verified target-day forecaster context
+    condition: "A verified AFD/HWO quote explicitly naming the target day and no significant hazards can raise confidence one level only when all required sources are current, within the 24/48-hour cap. A possible hazard adds a watch flag. EAX text applies only to EAX facilities."
+    posture: Confidence context only; never a posture trigger
+    verified: true
+    citation: *facility_policy
+    justification: This is a facility policy choice, not a federal confidence standard. Verified forecaster wording supplements current structured evidence, while long-range caps and deterministic posture thresholds remain authoritative.

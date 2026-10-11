@@ -543,8 +543,8 @@ def original_target_note(db, rec):
 
 
 def revision_context(investigation):
-    kind = "scheduled_job" if investigation.request.get("scheduled_job") else "recheck" if investigation.action == "recheck_now" else "staff_response" if investigation.action == "ask_staff" else "investigation"
-    labels = {"scheduled_job": "Scheduled job", "recheck": "Recheck", "staff_response": "Staff response", "investigation": "Investigation question"}
+    kind = "scheduled_job" if investigation.request.get("scheduled_job") else "evidence_sweep" if investigation.action == "collect_evidence" else "recheck" if investigation.action == "recheck_now" else "staff_response" if investigation.action == "ask_staff" else "investigation"
+    labels = {"scheduled_job": "Scheduled job", "recheck": "Recheck", "staff_response": "Staff response", "investigation": "Investigation question", "evidence_sweep": "Evidence collection"}
     return {"kind": kind, "label": labels[kind], "question": investigation.question,
             "at": utcnow().isoformat(), "investigation_id": investigation.id}
 
@@ -578,10 +578,12 @@ def revise(db, investigation, before, evidence, *, pending=False):
 def finish_revision(db, investigation, before, pending, evidence):
     facility = db.get(models.Facility, before.facility_id)
     final = evaluate(schemas.Facility.model_validate(facility), [schemas.Evidence.model_validate(e) for e in evidence],
-                     utcnow(), operating_date=before.operating_date, target_mode=before.target_mode or "explicit",
+                     datetime.fromisoformat(before.scenario_context["clock"]) if before.scenario_context else utcnow(), operating_date=before.operating_date, target_mode=before.target_mode or "explicit",
                      target_note=original_target_note(db, before))
     for name in ("posture", "confidence", "confidence_reasons", "what_would_change", "evidence_ids", "lead_time_hours", "rationale", "target_note"):
         setattr(pending, name, getattr(final, name))
+    if before.scenario_kind:
+        pending.rationale = ("SIMULATED. " if before.scenario_kind == "simulated" else "REPLAY (not current conditions). ") + final.rationale
     pending.triggers = [t.model_dump() for t in final.triggers]
     pending.status = "final"
     pending.revision_context = revision_context(investigation)
@@ -599,6 +601,10 @@ def run(investigation_id):
         if row is None or row.status != "pending" or row.archived_at:
             return
         rec = db.get(models.Recommendation, row.recommendation_id)
+        if row.action == "collect_evidence":
+            from .sweep import run
+            run(db, row, rec)
+            return
         body = schemas.InvestigationIn.model_validate({k: v for k, v in row.request.items() if k != "scheduled_job"})
         child = db.scalar(select(models.Recommendation.id).where(
             models.Recommendation.previous_recommendation_id == rec.id).limit(1))

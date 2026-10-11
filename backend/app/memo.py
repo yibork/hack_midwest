@@ -12,10 +12,10 @@ from sqlalchemy.orm import Session
 
 from . import models, record
 from .db import get_db, utcnow
-from .roles import manager_only
+from .roles import audit_reader, viewer, Viewer
 from .services import change_rule_id
 
-router = APIRouter(dependencies=[Depends(manager_only)])
+router = APIRouter(dependencies=[Depends(audit_reader)])
 POSTURES = {"normal": "Normal operations", "delayed_arrival": "Delayed arrival", "early_dismissal": "Early dismissal",
             "telework": "Telework", "closure": "Closure"}
 
@@ -157,8 +157,12 @@ def render(db, decision):
 
 @router.get("/decisions/{decision_id}/memo", response_class=HTMLResponse)
 @router.get("/api/decisions/{decision_id}/memo", response_class=HTMLResponse)
-def decision_memo(decision_id: str, db: Session = Depends(get_db)):
+def decision_memo(decision_id: str, db: Session = Depends(get_db), v: Viewer = Depends(viewer)):
     decision = db.get(models.Decision, decision_id)
     if decision is None:
         raise HTTPException(404, "Decision not found")
-    return HTMLResponse(render(db, decision), headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+    page = render(db, decision)
+    if v.role == "auditor":
+        page = page.replace('<h1>Decision memo</h1>', '<p><strong>Read-only · Auditor</strong></p><h1>Decision memo</h1>').replace('href="/record"', 'href="/record?role=auditor"')
+        page = re.sub(r'href="(/api/snapshots/[a-f0-9]{64}|/thresholds)([^\"]*)"', r'href="\1?role=auditor\2"', page)
+    return HTMLResponse(page, headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})

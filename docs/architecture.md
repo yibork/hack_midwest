@@ -1,5 +1,26 @@
 # Architecture
 
+## Manager workflow and read-only audit
+
+The Facility screen shows the posture, people/staffing and nearest two thresholds first;
+source detail, maps, rationale and activity are expandable with browser-local preferences.
+Decide is Review → Approve/override → Send/schedule. Delivery and acknowledgments poll every
+three seconds; scheduled sends use the stored approved notice and existing scheduler guard.
+Demo windows accept `?role=facility_manager|supervisor|employee|security_desk|auditor` plus
+`&person=<employee id>`. These are demo roles, not authentication. Auditor routes are limited
+to read-only Record, memos, Thresholds and saved evidence; write routes return 403.
+
+`POST /api/recommendations/{id}/collect-evidence` returns an investigation ID and a linked
+preliminary recommendation immediately. The existing investigation worker streams activity,
+refreshes all allowlisted feeds in code, and checks EAX AFD/HWO (see sources.md). New/changed
+items alone go to specialists; a verified forecaster summary uses at most one additional
+model call against the same persistent 12-call budget. Exhaustion does not block fetching or
+re-evaluation. The final revision preserves the original target-day explanation and reports
+source statuses plus a plain-language diff. Unexpected failure finalizes partial evidence
+with an explicit unknown-data flag, allowing a safe retry. Replay/simulation never fetch live.
+No tables or columns are removed, and historical evidence, snapshots and record events are
+untouched. Confidence-only facility policy 1.0.1 retains all posture thresholds and lead caps.
+
 How an evaluation runs, which agents do what, and what is cached, rate-limited and scheduled.
 The rule throughout: **agents gather evidence and word explanations; deterministic code decides;
 a manager approves.** Source research and the local-signal allowlist are in

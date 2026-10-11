@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 Posture = Literal["normal", "delayed_arrival", "early_dismissal", "telework", "closure"]
 # Least to most restrictive. The engine picks the highest-ranked posture among fired rules.
 POSTURE_ORDER: list[str] = ["normal", "delayed_arrival", "early_dismissal", "telework", "closure"]
-EvidenceSource = Literal["nws", "nwps", "modot", "roster", "demo", "local", "human"]
+EvidenceSource = Literal["nws", "nwps", "modot", "roster", "demo", "local", "human", "sweep"]
 EvidenceStatus = Literal["ok", "unknown", "stale"]
 Confidence = Literal["high", "medium", "low"]
 
@@ -392,6 +392,7 @@ class NoticeDetail(BaseModel):
     coverage: list[CoverageItem]
     notifications: list[Notification]
     names: dict[str, str]  # employee_id -> name
+    scheduled_send_at: dt.datetime | None = None
 
 
 class CallInIn(BaseModel):
@@ -463,7 +464,7 @@ class EvaluateIn(BaseModel):
 
 
 InvestigationAction = Literal["check_commute_routes", "check_access_routes", "check_river", "check_local_closures",
-                              "explain_confidence", "what_would_change", "recheck_now", "schedule_recheck", "ask_staff"]
+                              "explain_confidence", "what_would_change", "recheck_now", "schedule_recheck", "ask_staff", "collect_evidence"]
 
 
 class InvestigationIn(BaseModel):

@@ -320,6 +320,25 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
         reasons.append(local.corroborations[0])
     reasons += local.notes
 
+    # Facility choice: verified target-day forecaster context affects confidence,
+    # never triggers/posture. Re-verify its quote against the saved source in pure code.
+    from ..sources.forecaster import interpretation
+    summary = by_kind.get("forecaster_summary")
+    if summary and summary.status == "ok" and isinstance(summary.value, dict) and summary.value.get("verified"):
+        product = next((e for e in evidence_list if e.id == summary.value.get("product_evidence_id") and e.kind in {"forecaster_afd", "forecaster_hwo"}), None)
+        point = by_kind.get("point")
+        applies = point and isinstance(point.value, dict) and point.value.get("office") == "EAX"
+        if product and applies and effective_status(product, now) == "ok" and effective_status(summary, now) == "ok":
+            meaning = interpretation(summary.value, product, w.operating_date)
+            if meaning == "clear" and all(effective_status(e, now) == "ok" for e in evidence_list) and all(k in by_kind for k in REQUIRED_KINDS):
+                if level > 0:
+                    level -= 1
+                reason = "Verified EAX forecaster text explicitly states no significant hazards for the target day; confidence raised at most one level within the lead-time cap."
+                reasons.append(reason)
+                level_reason = reason if level else None
+            elif meaning == "watch":
+                reasons.append("Watch this: EAX forecaster text mentions a possible target-day hazard. Check the next re-evaluation time; forecaster text alone does not change the posture.")
+
     # Forecast lead time caps confidence in weather-driven conclusions: watches and warnings for a
     # day 2-3 days out may simply not be issued yet. (A posture driven only by a current road
     # closure is not a forecast.)

@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import type { Evidence, RecommendationDetail } from "../api";
 import RecommendationHero from "./RecommendationHero";
 import SavedCopyLinks from "./SavedCopyLinks";
+import Disclosure from './Disclosure';
+import {CitedAnswer} from './InvestigationPanel';
 import MapView from "./MapView";
 import { PeopleStrip } from "./People";
 import LocalSignals, { AuthorityBadge, LocalEvidenceDetail, isLocal } from "./LocalSignals";
@@ -20,8 +22,10 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
         </div>
       )}
       <RecommendationHero rec={rec} actions={actions} />
-      {rec.people && <Card title="People and staffing"><PeopleStrip people={rec.people} /></Card>}
+      {rec.people && <Card title="Who is affected"><PeopleStrip people={rec.people} /></Card>}
+      <Card title="What would change this"><NearestThresholds rec={rec} /></Card>
 
+      <Disclosure title="Triggers" summary={rec.triggers.length ? `${rec.triggers.length} policy thresholds met` : 'No policy thresholds met'}>
       <Card title={`Triggers (${rec.triggers.length})`}>
         {rec.triggers.length === 0 ? (
           <p className="text-slate-600">No policy thresholds were met.</p>
@@ -57,19 +61,18 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
           </div>
         )}
       </Card>
+      </Disclosure>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <Disclosure title="Confidence details" summary={`${rec.confidence} — ${humanText(rec.confidence_reasons[0] ?? 'See confidence reasons')}`}>
         <Card title="Confidence">
           <ConfidenceBadge confidence={rec.confidence} />
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
             {rec.confidence_reasons.map((r, i) => <li key={i}>{humanText(r)}</li>)}
           </ul>
         </Card>
-        <Card title="What would change this">
-          <NearestThresholds rec={rec} />
-        </Card>
-      </div>
+      </Disclosure>
 
+      <Disclosure title="Rationale" summary={rec.rationale_note ?? 'Saved explanation and citations'}>
       <Card
         title={
           <span className="flex flex-wrap items-center gap-2">
@@ -86,14 +89,19 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
         }
         actions={<CopyButton text={humanText(rec.rationale)} />}
       >
-        <p className="leading-relaxed">{humanText(rec.rationale)}</p>
+        <p className="leading-relaxed"><CitedAnswer text={humanText(rec.rationale)} /></p>
         <details className="mt-2 text-sm"><summary>Technical details</summary><pre>{rec.rationale}</pre></details>
       </Card>
+      </Disclosure>
 
+      <Disclosure title="Local signals" summary={`${rec.evidence.filter(e => e.kind === 'local_fact').length} local facts · ${rec.evidence.filter(e => e.kind === 'local_fact' && (e.value as Record<string, unknown>)?.relevance === 'access').length} on access routes`}>
       <LocalSignals evidence={rec.evidence} tz={tz} />
-      {!rec.facility.temporary && <MapView recId={rec.id} title="Map: facility, access routes, commute bands, local facts" />}
+      </Disclosure>
+      {!rec.facility.temporary && <Disclosure title="Map" summary="Facility, access routes, commute bands and local facts"><MapView recId={rec.id} title="Map: facility, access routes, commute bands, local facts" /></Disclosure>}
 
+      <Disclosure title="Evidence" summary={`${rec.evidence.length} sources · ${rec.evidence.every(e => e.status === 'ok' && (!e.valid_until || new Date(e.valid_until).getTime() > Date.now())) ? 'all current' : 'missing or stale sources; see details'}`}>
       <EvidenceList evidence={rec.evidence} tz={tz} />
+      </Disclosure>
     </div>
   );
 }
@@ -158,7 +166,7 @@ export function EvidenceList({ evidence, tz }: { evidence: Evidence[]; tz: strin
               <tr key={e.id} className={`border-t border-slate-100 align-top ${e.status === "unknown" ? "bg-red-50" : e.status === "stale" ? "bg-amber-50" : ""}`}>
                 <td className="py-2 pr-3"><StatusBadge status={e.status} /></td>
                 <td className="py-2 pr-3">
-                  {{nws: "NWS", nwps: "NOAA river", modot: "MoDOT", roster: "Schedule", demo: "Demo scenario", local: "Local report", human: "Staff report"}[e.source]}
+                  {{nws: "NWS", nwps: "NOAA river", modot: "MoDOT", roster: "Schedule", demo: "Demo scenario", local: "Local report", human: "Staff report", sweep: 'Evidence refresh'}[e.source]}
                   {e.scenario_kind && <div className="text-xs font-bold">{e.scenario_kind === "simulated" ? "SIMULATED" : "REPLAY"}</div>}
                   {e.source === 'human' && <div className="mt-1 rounded bg-purple-100 px-2 py-1 text-xs normal-case text-purple-900">Human reported {(e.value as {source_name?: string})?.source_name}{(e.value as {simulated?: boolean})?.simulated ? ' · SIMULATED for the demo' : ''}</div>}
                   {isLocal(e) && !e.scenario_kind && <div className="mt-1"><AuthorityBadge authority={(e.value as { authority: string }).authority} /></div>}

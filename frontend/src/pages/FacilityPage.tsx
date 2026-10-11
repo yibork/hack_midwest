@@ -5,6 +5,7 @@ import AgentActivity from "../components/AgentActivity";
 import RecommendationView from "../components/RecommendationView";
 import InvestigationPanel from "../components/InvestigationPanel";
 import DemoScenario from "../components/DemoScenario";
+import Disclosure from '../components/Disclosure';
 import { Button, ErrorBox, Loading, useAsync } from "../components/ui";
 
 export default function FacilityPage() {
@@ -76,9 +77,22 @@ export default function FacilityPage() {
   if (facilities.error) return <ErrorBox error={facilities.error} onRetry={facilities.reload} />;
 
   const rec = latest.data;
+  async function collect() {
+    if (!rec) return;
+    setEvaluating(true); setEvalError(null);
+    try {const accepted = await api.collectEvidence(rec.id); setRunningEval(accepted.investigation_id); latest.setData(await api.recommendation(accepted.recommendation_id));}
+    catch(e) {setEvalError(e instanceof Error ? e.message : String(e));}
+    finally {setEvaluating(false);}
+  }
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
       <div className="min-w-0 space-y-4">
+        <h1 className="text-xl font-bold">{facility?.name}</h1>
+        {rec && <RecommendationView rec={rec} actions={<div className="flex flex-wrap gap-2">
+          <Link to={`/decide?recommendation=${rec.id}`}><Button disabled={preliminary}>{preliminary ? 'Preliminary — review only' : 'Review and decide'}</Button></Link>
+          <Button variant="secondary" onClick={collect} disabled={evaluating || preliminary}>Collect more evidence</Button>
+        </div>} />}
+        <Disclosure title="Scenario and evaluation settings" summary={`${facility?.address ?? 'Choose facility'} · evaluate a different target day or demo scenario`}>
         <DemoScenario onChange={rec => { latest.setData(rec); setParams({facility: rec?.facility_id ?? "usda-kc-demo"}); }} />
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -115,6 +129,7 @@ export default function FacilityPage() {
             </Button>
           </div>
         </div>
+        </Disclosure>
 
         {evalError && <ErrorBox error={evalError} onRetry={reevaluate} />}
         {latest.loading && !rec && <Loading />}
@@ -125,26 +140,12 @@ export default function FacilityPage() {
             <Button onClick={reevaluate} disabled={evaluating}>{evaluating ? "Evaluating…" : "Evaluate now"}</Button>
           </div>
         )}
-        {rec && (
-          <RecommendationView
-            rec={rec}
-            actions={
-              preliminary ? (
-                <Button disabled title="Approval opens when the road check finishes">Approve or override →</Button>
-              ) : (
-                <Link to={`/decide?recommendation=${rec.id}`}>
-                  <Button variant={rec.decision ? "secondary" : "primary"}>
-                    {rec.decision ? "View decision & notifications" : "Review and decide"}
-                  </Button>
-                </Link>
-              )
-            }
-          />
-        )}
+        <Disclosure title="How this was decided" summary={evaluating || pending ? 'Evidence check running — open for live steps' : 'Weather, roads, writer and investigator activity'}>
+          <AgentActivity evaluationId={evaluating ? runningEval : rec?.evaluation_id ?? runningEval} live={evaluating || pending} />
+        </Disclosure>
       </div>
       <div className="space-y-4">
         {rec && <InvestigationPanel rec={rec} onRevision={async id => latest.setData(await api.recommendation(id))} />}
-        <AgentActivity evaluationId={evaluating ? runningEval : rec?.evaluation_id ?? runningEval} live={evaluating || pending} />
       </div>
     </div>
   );

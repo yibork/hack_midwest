@@ -194,7 +194,7 @@ def _after_final(db: Session, row: models.Recommendation, fac: schemas.Facility,
     template = schemas.Recommendation.model_validate(row)
     row.rationale_note = writer_agent.start(
         row.id, template, weather_agent.evidence_for(eid), facility_name=fac.name, tz=fac.timezone,
-        state=new_state(evaluation_id=eid, facility_id=fac.id), timeout=settings.agent_timeout)
+        state=new_state(evaluation_id=eid, facility_id=fac.id, writer_facility=fac), timeout=settings.agent_timeout)
     db.commit()
     if not fac.temporary:
         facility = db.get(models.Facility, fac.id)

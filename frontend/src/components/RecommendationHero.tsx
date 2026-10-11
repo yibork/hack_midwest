@@ -10,7 +10,6 @@ export default function RecommendationHero({rec, actions}: {rec: RecommendationD
     <div className="text-sm text-slate-600">Recommendation for {new Date(`${rec.operating_date}T12:00:00`).toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"})}</div>
     <div className="mt-2 hero-label">{postureLabel(rec.posture)}</div>
     <p className="mt-2">{why}</p>
-    {rec.target_note && <p className="mt-1 text-sm text-slate-600">{humanText(rec.target_note)}</p>}
     <div className="hero-metrics">
       <div><span className="metric-label">Decision deadline</span><strong>{rec.decide_by ? fmtDateTime(rec.decide_by, tz) : "No action needed"}</strong></div>
       <div><span className="metric-label">Confidence</span><ConfidenceBadge confidence={rec.confidence} />

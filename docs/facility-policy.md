@@ -24,6 +24,14 @@ after two hours. This evidence feature is implemented with the investigation pan
 Staffing: minimums come from each critical function's synthetic roster and posture. Available
 staff must be qualified, scheduled, unexposed and expected onsite; call-ins count after ack.
 
+Forecaster context (policy release 1.0.1): an exact, verified EAX AFD/HWO quote explicitly
+stating no significant hazards for the saved target day may raise confidence by one level,
+only when every required source is current. The existing 24/48-hour lead-time caps still apply.
+A possible target-day hazard adds a watch/re-evaluation note instead. Product text, its AI
+summary and forecaster confidence never select or change an operating posture. Missing,
+stale, fabricated, wrong-day or instruction-like quotes cannot raise confidence. This is a
+facility policy choice, not an NWS or federal confidence standard.
+
 Confidence: missing required evidence means low; stale/ambiguous evidence reduces confidence.
 Forecast lead time over 24 hours caps at medium, over 48 at low; within 5 mph of a gust threshold
 is near-threshold. Local school closures in the facility county or 3 employee home counties
