@@ -86,6 +86,10 @@ class Settings:
     local_agent_timeout: float = field(default_factory=lambda: float(_pick("LOCAL_AGENT_TIMEOUT_SECONDS", default="45")))
     # Background scheduled re-evaluations (15:00 the day before, 04:00 on the target day).
     scheduler_loop: bool = field(default_factory=lambda: _pick("SCHEDULER_LOOP", default="1") != "0")
+    # Geocode "route + cross street" text for sources without coordinates (OSM Nominatim; tests off).
+    geocode: bool = field(default_factory=lambda: _pick("GEOCODE", default="1") != "0")
+    # Background road-source watcher: refreshes cached road facts when a road source changes.
+    roads_watch: bool = field(default_factory=lambda: _pick("ROADS_WATCH", default="1") != "0")
     # Background ack reminder/escalation loop (tests call escalation.tick() directly instead).
     escalation_loop: bool = field(default_factory=lambda: _pick("ESCALATION_LOOP", default="1") != "0")
     # Draft message wording in the background right after each recommendation (tests turn it off).

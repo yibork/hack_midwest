@@ -31,7 +31,7 @@ export interface Evidence {
   id: string;
   facility_id: string | null;
   evaluation_id: string | null;
-  source: "nws" | "nwps" | "modot" | "roster" | "demo" | "local";
+  source: "nws" | "nwps" | "modot" | "roster" | "demo" | "local" | "human";
   kind: string;
   value: unknown;
   units: string | null;
@@ -52,7 +52,7 @@ export interface Trigger {
   observed: number | string | null;
   margin: number | string | null; // e.g. "1 of 3 access routes closed"
   units: string | null;
-  citation: string;
+  citation: string | Citation;
   posture: Posture;
   evidence_id: string | null;
 }
@@ -67,6 +67,47 @@ export interface Decision {
   decided_at: string;
   delay_hours: number | null;
   dismissal_time: string | null;
+}
+
+export interface Citation {
+  title: string;
+  publisher: string;
+  url: string;
+  section_or_page: string;
+  retrieved_at: string;
+}
+export interface PolicyRule {
+  id: string;
+  description: string;
+  condition: string | { any: Record<string, unknown>[] };
+  posture: string;
+  group: "federal" | "coordination" | "facility";
+  citation: Citation;
+  justification: string;
+  verified: boolean;
+}
+export interface PolicyCatalog {
+  version: string;
+  change_log: { version: string; date: string; changes: string }[];
+  rules: PolicyRule[];
+}
+
+export interface InvestigationBudget { used: number; limit: number; label: string }
+export interface InvestigationRequest {
+  question?: string; action?: string; at?: string; employee_id?: string; role?: string; options?: string[];
+}
+export interface RevisionDiff {
+  changed: boolean;
+  changes: Record<string, {before: unknown; after: unknown}>;
+  recipient_counts: {before: unknown; after: unknown};
+}
+export interface Investigation {
+  id: string; recommendation_id: string; question: string; action: string | null; status: string;
+  revised_recommendation_id: string | null; budget: InvestigationBudget;
+  result: {answer?: string; source_label?: string; limitations?: string[]; could_not_answer_because?: string;
+    evidence_ids?: string[]; policy_ids?: string[]; new_evidence_ids?: string[]; tools_used?: string[]; target_date?: string};
+  staff_questions: {id: string; employee_id: string; question: string; options: string[]; status: string;
+    response: string | null; expires_at: string; delivery: {ok: boolean; error?: string}}[];
 }
 
 export interface Recommendation {
@@ -87,7 +128,11 @@ export interface Recommendation {
   target_mode: "next_operating_day" | "explicit" | "demo_workday" | "scheduled" | null;
   target_note: string | null;
   lead_time_hours: number | null;
-  rationale_note: string | null; // "AI draft" | "AI draft rejected: <reason> - template used" | "LLM unavailable - template used"
+  rationale_note: string | null; // "AI draft pending" | "AI draft" | "AI draft rejected: <reason> - template used" | ...
+  template_rationale: string | null;
+  status: "preliminary" | "final" | null; // preliminary: a live road check is running; decisions are blocked
+  previous_recommendation_id?: string | null;
+  revision_diff?: RevisionDiff | null;
 }
 
 export interface DecisionClock {
@@ -123,6 +168,8 @@ export interface PeopleSummary {
   params: Record<string, string | number>;
   clock: DecisionClock;
   exposed_count: number;
+  minor_commute_count: number;
+  minor_commute_label: string | null;
   coverage: CoverageItem[];
   counts_by_code: Record<string, number>;
   action_required: number;
@@ -130,6 +177,7 @@ export interface PeopleSummary {
 }
 
 export interface RecommendationDetail extends Recommendation {
+  change_rule_ids: string[];
   facility: Facility;
   evidence: Evidence[];
   decision: Decision | null;
@@ -321,6 +369,9 @@ export interface LocalFactValue {
   extracted_by: "agent" | "code";
   category: "construction" | "incident" | "flood" | "other" | null;
   active_since: string | null;
+  geometry: { type: string; coordinates: unknown } | null;
+  location_provenance: "source_coordinates" | "geocoded_text" | "none";
+  location_note: string | null;
 }
 
 export interface SourceRow {
@@ -334,6 +385,7 @@ export interface SourceRow {
   area: { counties?: string[]; cities?: string[] };
   refresh_minutes: number;
   robots: string;
+  coordinates: { fields?: string; geometry?: string; crs?: string; note?: string };
   last_fetch: string | null;
   status: string;
   items_found: number | null;
@@ -344,6 +396,37 @@ export interface SourcesResponse {
   sources: SourceRow[];
   integrated: { id: string; name: string; url: string; authority: string; note?: string }[];
   skipped: { name: string; url: string; reason: string }[];
+}
+
+export interface MapFact {
+  id: string;
+  agent: string | null;
+  fact_type: string | null;
+  relevance: "facility" | "commute" | "not_relevant" | "uncertain" | null;
+  location_provenance: "source_coordinates" | "geocoded_text" | "none";
+  location_note: string | null;
+  geometry: { type: string; coordinates: unknown } | null;
+  title: string | null;
+  quote: string | null;
+  link: string | null;
+  snapshot_url: string | null;
+  active_since: string | null;
+  distance_km: number | null;
+  source_id: string | null;
+  source_name: string | null;
+  authority: string | null;
+  category: string | null;
+  affected_commutes: number;
+  segments: string[];
+}
+
+export interface MapData {
+  facility: { name: string; lat: number; lon: number };
+  segments: { route: string; name: string; buffer_km: number; ramps: boolean; coordinates: [number, number][] }[];
+  corridor_cells: { bounds: [[number, number], [number, number]]; count: number }[];
+  corridor_rule: string;
+  facts: MapFact[];
+  unmapped: MapFact[];
 }
 
 export interface Persona {
@@ -448,6 +531,13 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
 }
 
 export const api = {
+  investigate: (id: string, body: InvestigationRequest) => request<{investigation_id: string}>(`/recommendations/${id}/investigate`, {method: 'POST', body: JSON.stringify(body)}),
+  investigations: (id: string) => request<Investigation[]>(`/recommendations/${id}/investigations`),
+  investigation: (id: string) => request<Investigation>(`/investigations/${id}`),
+  suggestions: (id: string) => request<{suggestions: {action: string; label: string}[]; budget: InvestigationBudget}>(`/recommendations/${id}/suggestions`),
+  staffCandidates: (id: string) => request<{id: string; name: string; role: string}[]>(`/recommendations/${id}/staff-candidates`),
+  demoStaffResponse: (id: string, option: string) => request<{recommendation_id: string}>(`/staff-questions/${id}/demo-response`, {method: 'POST', body: JSON.stringify({option})}),
+  thresholds: () => request<PolicyCatalog>("/thresholds"),
   health: () => request<{ status: string; demo_mode: boolean }>("/health"),
   facilities: () => request<Facility[]>("/facilities"),
   facility: (id: string) => request<Facility>(`/facilities/${id}`),
@@ -474,6 +564,7 @@ export const api = {
   ack: (notificationId: string) => post<Notification>(`/notifications/${notificationId}/ack`),
   viewers: () => request<Viewers>("/viewers"),
   sources: () => request<SourcesResponse>("/sources"),
+  map: (recId: string) => request<MapData>(`/recommendations/${recId}/map`),
   simulate: (body: { kind: "zone_alert" | "road_closure" | "clear"; zone?: string; route?: string }) =>
     post<Record<string, unknown>>("/demo/simulate", body),
   nationalScan: () => request<NationalAlert[]>("/national-scan"),

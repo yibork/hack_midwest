@@ -15,9 +15,12 @@
 #   departure_window = close_time      .. close_time + 2h
 #   operating_day    = commute start   .. departure end
 #
-# EVERY citation below is a placeholder until a human confirms it against the source document.
-
-version: "0.1.0-draft"
+# Source definitions are verified; posture mappings remain this prototype's facility policy.
+version: "1.0.0"
+change_log:
+  - version: "1.0.0"
+    date: "2026-10-11"
+    changes: "Verified EAX wind bands (unchanged), CAP fields, KCDM7 stages and OPM obligations; distinguished facility decisions and FEB coordination from federal hazard definitions. Added sustained-wind checks."
 commute_window_hours: 2
 departure_window_hours: 2
 
@@ -32,13 +35,21 @@ rules:
           urgency: [Immediate]
           window: operating_hours
     posture: closure
-    citation: "TODO: verify - NWS CAP severity/urgency definitions; agency facility closure policy"
+    group: federal
+    verified: true
+    citation:
+      title: Common Alerting Protocol Version 1.2
+      publisher: OASIS
+      url: https://docs.oasis-open.org/emergency/cap/v1.2/CAP-v1.2-os.html
+      section_or_page: "3.2.2 info: severity, urgency, certainty"
+      retrieved_at: "2026-10-11T02:11:09Z"
     justification: >
-      Extreme/Immediate alerts signal an extraordinary threat to life or property requiring
-      action now. Staff should not travel to or remain at the facility.
+      Extreme describes an extraordinary threat and Immediate requires action now.
+      Closure during operating hours is Facility policy v1.0, not a CAP requirement;
+      emergency personnel follow agency instructions and shelter guidance.
 
   - id: high_wind
-    description: High Wind Warning active, or forecast gusts >= 58 mph during the commute window
+    description: High Wind Warning active, commute gusts >= 58 mph, or sustained wind >= 40 mph for one hour
     hazard: wind
     condition:
       any:
@@ -48,14 +59,26 @@ rules:
         - type: forecast_gust
           min_mph: 58
           window: commute
+        - type: forecast_wind
+          min_mph: 40
+          duration_minutes: 60
+          window: commute
     posture: closure
-    citation: "TODO: verify - typical NWS High Wind Warning criteria (sustained 40+ mph or gusts 58+ mph); local WFO criteria may differ"
+    group: federal
+    verified: true
+    citation: &eax
+      title: WFO Kansas City Watch/Warning/Advisory Criteria
+      publisher: NWS Kansas City/Pleasant Hill (EAX)
+      url: https://www.weather.gov/eax/eaxwwacriteria
+      section_or_page: "Wind: High Wind Warning and Wind Advisory; Flooding; Convective"
+      retrieved_at: "2026-10-11T02:11:09Z"
     justification: >
-      Gusts at High Wind Warning levels make driving hazardous, especially for high-profile
-      vehicles, and bring down trees and power lines along access routes.
+      EAX uses non-convective gusts at least 58 mph or sustained winds at least 40 mph for
+      one hour. Facility policy v1.0 maps the warning or equivalent commute forecast to
+      closure to reduce travel exposure; NWS does not order a facility closure.
 
   - id: wind_advisory
-    description: Wind Advisory active, or forecast gusts 46-57 mph during the commute window
+    description: Wind Advisory active, commute gusts 46-57 mph, or sustained wind 31-39 mph for one hour
     hazard: wind
     condition:
       any:
@@ -66,11 +89,19 @@ rules:
           min_mph: 46
           below_mph: 58
           window: commute
+        - type: forecast_wind
+          min_mph: 31
+          below_mph: 40
+          duration_minutes: 60
+          window: commute
     posture: delayed_arrival
-    citation: "TODO: verify - typical NWS Wind Advisory criteria (sustained 31-39 mph or gusts 46-57 mph)"
+    group: federal
+    verified: true
+    citation: *eax
     justification: >
-      Advisory-level winds make the morning commute difficult; a delayed arrival lets crews
-      clear debris and lets winds ease before staff travel.
+      EAX specifies non-convective gusts 46–57 mph or sustained winds 31–39 mph for one hour;
+      continuous forecasts use an upper bound below the warning threshold.
+      Delayed arrival is Facility policy v1.0 and requires a manager to verify a safer travel window.
 
   - id: flood
     description: Flash Flood Warning or Flood Warning covering the facility
@@ -81,10 +112,13 @@ rules:
           events: [Flash Flood Warning, Flood Warning, Flash Flood Emergency]
           window: operating_day
     posture: telework
-    citation: "TODO: verify - NWS flood warning product definitions; agency telework policy"
+    group: federal
+    verified: true
+    citation: *eax
     justification: >
-      Flooded roads are the leading cause of flood deaths ("turn around, don't drown").
-      Work can continue remotely without putting staff on the roads.
+      EAX flood warnings identify observed or expected flooding. Facility policy v1.0 chooses
+      telework to reduce travel exposure; eligibility and emergency duties remain subject to
+      agency authorization, and a warning alone does not prove the building is flooded.
 
   - id: convective
     description: Severe Thunderstorm Warning or Tornado Warning during operating hours
@@ -97,15 +131,18 @@ rules:
     # Starts after opening: dismiss early. Starts at or before opening: delay arrival.
     posture: early_dismissal
     posture_if_onset_before_open: delayed_arrival
-    citation: "TODO: verify - NWS warning definitions; agency shelter-in-place and dismissal policy"
+    group: federal
+    verified: true
+    citation: *eax
     justification: >
-      Warnings are short-fused. If one begins before opening, delaying arrival keeps staff off
-      the road during the threat; if it begins mid-day, release staff once it is safe to travel.
+      EAX warnings describe imminent or ongoing severe thunderstorms or tornadoes.
+      Facility policy v1.0 delays arrival before opening and proposes early departure after
+      opening only when safe; an active warning requires shelter guidance, not immediate travel.
 
 # Local signals (agents/local). Facts are extracted by agents and validated in code; only these
 # rules decide what they change. Nothing from local signals can lower the posture.
 local_signals:
-  citation: "facility policy v1 (TODO: verify)"
+  citation: "Facility policy v1.0 (this system): access_route_closed and local_corroboration"
   closure_confidence: [high, medium]   # agent confidence needed for a road closure to count
   school_min_home_counties: 3          # school closures in this many employee home counties corroborate
   # Location: a closure counts only if its coordinates fall inside a facility access segment's
@@ -114,3 +151,125 @@ local_signals:
   access_route_closed:
     some_routes_closed: delayed_arrival
     all_routes_closed: telework
+
+# Reference-only entries are shown on Thresholds; they are not new automatic closure rules.
+references:
+  - id: nws_nonprecipitation
+    group: federal
+    description: National non-precipitation criteria
+    condition: "Typical warning: sustained 40 mph for one hour or wind 58 mph; advisory sustained 30–39 mph or locally defined. EAX local criteria take precedence here."
+    posture: Reference only
+    verified: true
+    citation:
+      title: NWS Instruction 10-515 (May 16, 2025)
+      publisher: NOAA National Weather Service
+      url: https://www.weather.gov/media/directives/010_pdfs/pd01005015curr.pdf
+      section_or_page: "6.2.3, tables on printed pages 6–7"
+      retrieved_at: "2026-10-11T02:11:09Z"
+    justification: The national directive explicitly allows local wind criteria. This system uses the opened EAX criteria rather than importing another forecast office's advisory band.
+  - id: nws_cap
+    group: federal
+    description: NWS CAP alert field interpretation
+    condition: "Urgency, severity and certainty describe response timing, impact and likelihood; Observed/Likely support confidence."
+    posture: Reference only
+    verified: true
+    citation:
+      title: NWS CAP v1.2 Documentation
+      publisher: NOAA National Weather Service
+      url: https://www.weather.gov/media/alert/CAP_v12_guide_05-16-2017.pdf
+      section_or_page: "info block urgency/severity/certainty; services-web-alerts and services-web-api"
+      retrieved_at: "2026-10-11T02:11:09Z"
+    justification: NWS alerts implement CAP fields defined by OASIS. Treating uncertainty as a confidence reduction is a facility choice, not a CAP operating-status rule.
+  - id: river_kcdm7
+    group: federal
+    description: Missouri River at Kansas City flood categories
+    condition: "KCDM7 stage in feet: action 29; minor 32; moderate 35; major 49."
+    values: {action: 29, minor: 32, moderate: 35, major: 49}
+    posture: Reference only; check access and site impacts
+    verified: true
+    citation:
+      title: NOAA NWPS gauge KCDM7
+      publisher: NOAA National Water Prediction Service
+      url: https://api.water.noaa.gov/nwps/v1/gauges/KCDM7
+      section_or_page: "flood.stageUnits and flood.categories.{action,minor,moderate,major}.stage"
+      retrieved_at: "2026-10-11T02:11:09Z"
+    justification: These gauge-specific stages classify river flooding, not facility inundation. They prompt an access/site investigation and do not independently order closure.
+  - id: operating_postures
+    group: federal
+    description: Operating-status names and employee obligations
+    condition: "Open; delayed arrival; early departure; office closure; unscheduled telework. Emergency staff follow agency duties; telework-ready staff need agency authorization/agreements."
+    posture: Reference only
+    verified: true
+    citation:
+      title: Governmentwide Dismissal and Closure Procedures (December 2025)
+      publisher: US Office of Personnel Management
+      url: https://www.opm.gov/policy-data-oversight/pay-leave/reference-materials/handbooks/dcdismissal.pdf
+      section_or_page: "II.B/E/G; III.A; IV.B (printed pages 2–6, 11–13, 18–30)"
+      retrieved_at: "2026-10-11T02:11:09Z"
+    justification: Our normal/early_dismissal/closure labels map to open/early departure/office closure. Telework is an authorized flexibility, not a separate OPM standard status, and DC announcements do not determine Kansas City agency status.
+  - id: kc_feb
+    group: coordination
+    description: Kansas City Federal Executive Board coordination
+    condition: "Manager should check agency/FEB coordination before deciding; no verified machine-readable status feed."
+    posture: Manager reference only
+    verified: true
+    citation:
+      title: Federal Executive Boards FY2019 Annual Report
+      publisher: US Office of Personnel Management
+      url: https://www.opm.gov/chcoc/transmittals/2020/attachments/federal-executive-board-2019-annual-report_0.pdf
+      section_or_page: "Emergency Preparedness, Security and Safety; printed page 14"
+      retrieved_at: "2026-10-11T02:11:09Z"
+    justification: OPM documents Kansas City FEB participation in operating-status coordination and recommendations. This verifies the published role historically; the current FEB website was unavailable, so the manager must confirm current contacts and announcements with their agency.
+  - id: access_route_closed
+    group: facility
+    description: Facility access-route closures
+    condition: "Official state closure, source coordinates on its own route inside the access buffer, during the target commute: some routes closed → delay; all → telework."
+    posture: delayed_arrival / telework
+    verified: true
+    citation: &facility_policy
+      title: Facility policy v1.0 (this system)
+      publisher: Closure Call prototype
+      url: /thresholds#access_route_closed
+      section_or_page: "docs/facility-policy.md; rules/local.py; geo.py"
+      retrieved_at: "2026-10-11T02:11:09Z"
+    justification: This facility choice reduces travel when access is obstructed. Approximate geocodes, ramp/lane restrictions and uncertain locations cannot trigger facility closure.
+  - id: site_hazard_reported
+    group: facility
+    description: Unsafe site condition reported by facility operations
+    condition: "Authenticated single-use response by facility_ops identifies unsafe site conditions for the target day's commute window."
+    posture: delayed_arrival
+    verified: true
+    citation: *facility_policy
+    justification: A time-scoped human report warrants a delay for manager review. It never reduces an existing posture and is displayed as human-reported evidence, not an official weather observation.
+  - id: staffing_minimums
+    group: facility
+    description: Critical-function staffing minimums
+    condition: "Facility roster sets minimum on-site coverage by function and posture; exposed, absent or unacknowledged staff do not satisfy coverage."
+    posture: Staffing alert; manager selects call-ins
+    verified: true
+    citation: *facility_policy
+    justification: Minimum coverage values belong to this synthetic facility roster. OPM does not prescribe these numbers; managers choose call-ins and check safe access.
+  - id: lead_time_confidence
+    group: facility
+    description: Forecast lead-time confidence caps
+    condition: "More than 24 hours to commute → at most medium; more than 48 hours → low. Near a gust threshold means within 5 mph."
+    posture: Confidence only
+    verified: true
+    citation: *facility_policy
+    justification: Longer-range forecasts and borderline values warrant conservative confidence. These 24/48-hour caps and 5-mph margin are facility choices, not NWS forecast accuracy guarantees.
+  - id: calendar
+    group: facility
+    description: Operating calendar and evidence windows
+    condition: "Default Mon–Fri excluding observed US federal holidays; commute starts 2 hours before opening; departure ends 2 hours after closing. Explicit dates and labelled demo workdays are allowed."
+    posture: Target-day selection only
+    verified: true
+    citation: *facility_policy
+    justification: The facility chooses its operating schedule and two-hour travel windows. Essential functions can have separate operating days and explicit employee shifts still govern recipient selection.
+  - id: local_corroboration
+    group: facility
+    description: Local corroboration and missing evidence
+    condition: "Schools in facility county or at least 3 home counties corroborate a fired weather rule; confidence can rise one level. Missing/stale/uncertain evidence lowers confidence; news never triggers a posture."
+    posture: Confidence and manager-check notes only
+    verified: true
+    citation: *facility_policy
+    justification: These corroboration thresholds belong to this prototype. Local context can support a weather finding without replacing official evidence or lowering the recommended posture.

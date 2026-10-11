@@ -34,17 +34,36 @@ class Policy:
     commute_window_hours: float = 2
     departure_window_hours: float = 2
     local: dict | None = None  # local_signals section (rules/local.py)
+    references: list[dict] | None = None
 
 
 def load_policy(path: Path = POLICY_PATH) -> Policy:
     raw = path.read_bytes()
     data = yaml.safe_load(raw)
+    entries = data["rules"] + data.get("references", [])
+    required = {"title", "publisher", "url", "section_or_page", "retrieved_at"}
+    for rule in entries:
+        if not isinstance(rule.get("citation"), dict) or not required <= rule["citation"].keys():
+            raise ValueError(f"{rule['id']}: complete structured citation required")
+        if not all(str(rule["citation"][k]).strip() for k in required) or not rule.get("justification", "").strip():
+            raise ValueError(f"{rule['id']}: citation and justification cannot be empty")
+        if not isinstance(rule.get("verified"), bool):
+            raise ValueError(f"{rule['id']}: verified must be a boolean")
+    if "draft" not in data["version"] and any(not r["verified"] for r in entries):
+        raise ValueError("A non-draft policy cannot contain unverified rules or references")
     # Version + content hash, so a replayed decision points at the exact rule text used.
     version = f"{data['version']}+{hashlib.sha256(raw).hexdigest()[:8]}"
     return Policy(version=version, rules=data["rules"],
                   commute_window_hours=data.get("commute_window_hours", 2),
                   departure_window_hours=data.get("departure_window_hours", 2),
-                  local=data.get("local_signals") or {})
+                  local=data.get("local_signals") or {}, references=data.get("references", []))
+
+
+def policy_catalog() -> dict:
+    policy = load_policy()
+    data = yaml.safe_load(POLICY_PATH.read_bytes())
+    return {"version": policy.version, "change_log": data.get("change_log", []),
+            "rules": policy.rules + (policy.references or [])}
 
 
 # ---------------------------------------------------------------- time windows
@@ -183,6 +202,22 @@ def _check_gust(rule: dict, clause: dict, peak: float | None, wind_ev: Evidence 
     )
 
 
+def _check_sustained(rule, clause, wind_ev, w):
+    if not wind_ev or wind_ev.status == "unknown" or not isinstance(wind_ev.value, dict):
+        return None
+    start, end = w.get(clause.get("window", "commute"))
+    duration = timedelta(minutes=clause["duration_minutes"])
+    for hour in wind_ev.value.get("hours", []):
+        at, speed = _parse_dt(hour.get("time")), hour.get("wind_mph")
+        if at is None or speed is None or not (start <= at and at + duration <= end):
+            continue
+        hit = _check_gust(rule, clause, speed, wind_ev)
+        if hit:
+            hit.description += " (sustained forecast for one hour)"
+            return hit
+    return None
+
+
 # ---------------------------------------------------------------- evaluate
 
 def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
@@ -211,6 +246,8 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
                     fired_alerts.append(hit[1])
             elif clause["type"] == "forecast_gust":
                 t = _check_gust(rule, clause, commute_peak, wind_ev)
+            elif clause["type"] == "forecast_wind":
+                t = _check_sustained(rule, clause, wind_ev, w)
             else:
                 raise ValueError(f"unknown clause type {clause['type']!r} in rule {rule['id']}")
             if t:
@@ -322,6 +359,9 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
                 alert_changes.append(f"{what} for this location "
                                      f"({c.get('window', 'operating_day').replace('_', ' ')}) "
                                      f"would move this to {rule['posture']}.")
+            elif c["type"] == "forecast_wind" and not commute_passed:
+                alert_changes.append(f"Sustained winds reaching {c['min_mph']:g} mph for one hour during "
+                                     f"{window_label} would move this to {rule['posture']}.")
     changes += [text for _, text in sorted(gust_changes)] + alert_changes + local.changes
     for t in triggers:
         if t.units is None and t.rule_id != "access_route_closed":
@@ -357,7 +397,8 @@ def template_rationale(rec: Recommendation, facility: Facility, w: Windows, aler
     if rec.triggers:
         for t in rec.triggers:
             if t.units:
-                parts.append(f"Rule '{t.rule_id}' fired: forecast peak gust of {t.observed} {t.units} in the "
+                kind = "sustained wind" if "sustained forecast" in t.description else "peak gust"
+                parts.append(f"Rule '{t.rule_id}' fired: forecast {kind} of {t.observed} {t.units} in the "
                              f"commute window meets the {t.threshold} {t.units} threshold "
                              f"(margin {t.margin:+g} {t.units}).")
             else:

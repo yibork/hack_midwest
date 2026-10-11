@@ -53,6 +53,20 @@ def apply(facility: Facility, evidence: list[Evidence], commute: tuple[datetime,
     citation = policy.get("citation", "facility policy v1 (TODO: verify)")
     facts = [e for e in evidence if e.kind == "local_fact" and e.status == "ok" and isinstance(e.value, dict)]
 
+    reports = [e for e in evidence if e.source == "human" and e.kind == "site_report" and e.status == "ok"
+               and isinstance(e.value, dict) and e.value.get("authority") == "human_reported"
+               and e.value.get("role") == "facility_ops" and e.value.get("unsafe") is True
+               and e.value.get("operating_date") == commute[1].date().isoformat()
+               and e.value.get("effective_from") and e.value.get("effective_until")
+               and _in_window(e.value, *commute)]
+    if reports:
+        e = reports[-1]
+        out.triggers.append(Trigger(rule_id="site_hazard_reported", description="Unsafe site reported by facility operations for the target commute",
+                                    threshold="unsafe site report during target commute window", observed=e.relevance_note,
+                                    posture="delayed_arrival", evidence_id=e.id,
+                                    citation="Facility policy v1.0 (this system): site_hazard_reported"))
+        out.changes.append("A verified safe-site assessment would remove the site_hazard_reported trigger; human reports never lower the current posture.")
+
     # Missing official road data is not "no closures".
     for e in evidence:
         if e.kind == "local_feed" and e.status == "unknown" and isinstance(e.value, dict):
@@ -66,6 +80,7 @@ def apply(facility: Facility, evidence: list[Evidence], commute: tuple[datetime,
     closing = [e for e in facts if e.value.get("authority") == "official_state"
                and e.value.get("fact_type") == "road_closure" and e.value.get("matches_facility_access_route")
                and e.value.get("relevance") == "facility"
+               and e.value.get("location_provenance", "source_coordinates") == "source_coordinates"  # never geocoded
                and e.value.get("confidence") in policy.get("closure_confidence", ["high", "medium"])
                and _in_window(e.value, *commute)]
     closed = sorted(set().union(*[set(e.value.get("routes_mentioned", [])) for e in closing]) & access) if closing else []

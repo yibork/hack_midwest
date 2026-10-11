@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 Posture = Literal["normal", "delayed_arrival", "early_dismissal", "telework", "closure"]
 # Least to most restrictive. The engine picks the highest-ranked posture among fired rules.
 POSTURE_ORDER: list[str] = ["normal", "delayed_arrival", "early_dismissal", "telework", "closure"]
-EvidenceSource = Literal["nws", "nwps", "modot", "roster", "demo", "local"]
+EvidenceSource = Literal["nws", "nwps", "modot", "roster", "demo", "local", "human"]
 EvidenceStatus = Literal["ok", "unknown", "stale"]
 Confidence = Literal["high", "medium", "low"]
 
@@ -137,7 +137,7 @@ class Trigger(BaseModel):
     observed: float | str | None = None
     margin: float | str | None = None  # observed - threshold (or e.g. "1 of 3 access routes closed")
     units: str | None = None
-    citation: str
+    citation: dict | str  # old saved recommendations retain their original citation string
     posture: Posture
     evidence_id: str | None = None
 
@@ -164,6 +164,10 @@ class Recommendation(ORMModel):
     # "AI draft pending" | "AI draft" | "AI draft rejected: <reason> - template used" | "LLM unavailable - template used"
     rationale_note: str | None = None
     template_rationale: str | None = None  # the engine's text (kept when an AI draft replaces it)
+    # "preliminary": a live road check is still running; decisions are blocked until it is final.
+    status: str | None = "final"
+    previous_recommendation_id: str | None = None
+    revision_diff: dict | None = None
 
 
 HHMM = Annotated[str, StringConstraints(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")]
@@ -203,6 +207,7 @@ class Decision(ORMModel):
 
 
 class RecommendationDetail(Recommendation):
+    change_rule_ids: list[str] = []
     facility: Facility
     evidence: list[Evidence]
     decision: Decision | None = None
@@ -360,6 +365,10 @@ class PeopleSummary(BaseModel):
     params: dict
     clock: DecisionClock
     exposed_count: int
+    # Commuters whose corridor passes a road *condition* (lane/ramp closure, delays) but no closure:
+    # minor, not counted as exposure. Only road closures on a commute route count as exposure.
+    minor_commute_count: int = 0
+    minor_commute_label: str | None = None  # "ramp closures" | "minor road conditions"
     coverage: list[CoverageItem]
     counts_by_code: dict[str, int]
     action_required: int
@@ -439,6 +448,32 @@ class EvaluateIn(BaseModel):
     evaluation_id: EvaluationId | None = None
     target_date: dt.date | None = None  # default: the next operating day
     demo_workday: bool = False  # DEMO_MODE only: evaluate today as if it were a workday
+
+
+InvestigationAction = Literal["check_commute_routes", "check_access_routes", "check_river", "check_local_closures",
+                              "explain_confidence", "what_would_change", "recheck_now", "schedule_recheck", "ask_staff"]
+
+
+class InvestigationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question: str | None = Field(default=None, max_length=2000)
+    action: InvestigationAction | None = None
+    at: dt.datetime | None = None
+    employee_id: str | None = None
+    role: Literal["facility_ops"] | None = None
+    options: list[str] = Field(default_factory=lambda: ["Unsafe", "Safe", "Unsure"], min_length=2, max_length=3)
+
+    @model_validator(mode="after")
+    def validate_request(self):
+        if not self.action and not (self.question and self.question.strip()):
+            raise ValueError("question or action is required")
+        if self.action == "schedule_recheck" and (not self.at or not self.at.tzinfo):
+            raise ValueError("schedule_recheck requires at with a timezone")
+        if self.action == "ask_staff" and (not self.question or not (self.employee_id or self.role)):
+            raise ValueError("ask_staff requires a question and employee_id or facility_ops role")
+        if len(set(self.options)) != len(self.options) or any(not o.strip() or len(o) > 60 for o in self.options):
+            raise ValueError("options must be distinct nonempty labels of at most 60 characters")
+        return self
 
 
 class EvaluatePointIn(EvaluateIn):

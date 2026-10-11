@@ -128,6 +128,9 @@ class Recommendation(Base):
     lead_time_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     rationale_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     template_rationale: Mapped[str | None] = mapped_column(Text, nullable=True)  # engine text, kept when an AI draft replaces it
+    status: Mapped[str | None] = mapped_column(String(12), nullable=True)  # preliminary | final (None = final)
+    previous_recommendation_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    revision_diff: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class Decision(Base):
@@ -205,6 +208,34 @@ class MessageDraft(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class RoadFactsCache(Base):
+    """Validated road facts for a set of road-source contents (+ facility, target day, geometry).
+    Unchanged sources -> reuse the facts without a model call."""
+
+    __tablename__ = "road_facts_cache"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    facility_id: Mapped[str] = mapped_column(String(64), index=True)
+    operating_date: Mapped[date] = mapped_column(Date)
+    source_hashes: Mapped[dict] = mapped_column(JSON, default=dict)  # source_id -> content hash
+    entries: Mapped[list] = mapped_column(JSON, default=list)  # [{fact, item, source_id, how}]
+    rejected: Mapped[list] = mapped_column(JSON, default=list)
+    origin: Mapped[str] = mapped_column(String(12))  # evaluation | background
+    evaluation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
+
+
+class GeocodeCache(Base):
+    """Nominatim results (including "not found"), so each query is sent at most once."""
+
+    __tablename__ = "geocode_cache"
+    query: Mapped[str] = mapped_column(String(300), primary_key=True)
+    lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+    display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    provider: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class ScheduledJob(Base):
     """Automatic re-evaluations: 15:00 the day before the target day and 04:00 on it. They run the
     deterministic pipeline and call agents only if the result changed."""
@@ -230,6 +261,41 @@ class RecordEvent(Base):
     evaluation_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     event_type: Mapped[str] = mapped_column(String(64))
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class InvestigationBudget(Base):
+    __tablename__ = "investigation_budgets"
+    recommendation_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    used: Mapped[int] = mapped_column(Integer, default=0)
+    limit: Mapped[int] = mapped_column(Integer, default=12)
+
+
+class Investigation(Base):
+    __tablename__ = "investigations"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    recommendation_id: Mapped[str] = mapped_column(ForeignKey("recommendations.id"), index=True)
+    budget_key: Mapped[str] = mapped_column(String(32))
+    question: Mapped[str] = mapped_column(Text)
+    action: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    request: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    revised_recommendation_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class StaffQuestion(Base):
+    __tablename__ = "staff_questions"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    investigation_id: Mapped[str] = mapped_column(ForeignKey("investigations.id"), index=True)
+    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    question: Mapped[str] = mapped_column(Text)
+    options: Mapped[list] = mapped_column(JSON)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    responded_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    delivery: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 @event.listens_for(RecordEvent, "before_update")

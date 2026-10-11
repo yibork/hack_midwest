@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import type { Evidence, RecommendationDetail } from "../api";
 import DecisionClock from "./DecisionClock";
+import MapView from "./MapView";
 import { PeopleStrip } from "./People";
 import LocalSignals, { AuthorityBadge, LocalEvidenceDetail, isLocal } from "./LocalSignals";
 import { Button, Card, ConfidenceBadge, PostureBadge, StatusBadge, fmtDateTime } from "./ui";
@@ -10,6 +12,12 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
   const tz = rec.facility.timezone;
   return (
     <div className="space-y-4">
+      {rec.status === "preliminary" && (
+        <div role="status" className="flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 font-semibold text-sky-900">
+          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-sky-300 border-t-sky-700" />
+          Preliminary - evidence check in progress. Approval opens when it finishes; the result may still change.
+        </div>
+      )}
       <Card>
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div>
@@ -84,7 +92,7 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
                     <td className="py-2 pr-3">{t.threshold}{t.units ? ` ${t.units}` : ""}</td>
                     <td className="py-2 pr-3 tabular-nums">{t.margin == null ? "—" : typeof t.margin === "string" ? t.margin : `${t.margin > 0 ? "+" : ""}${t.margin} ${t.units ?? ""}`}</td>
                     <td className="py-2 pr-3"><PostureBadge posture={t.posture} size="sm" /></td>
-                    <td className={`py-2 text-xs ${t.citation.startsWith("TODO") ? "text-amber-700" : "text-slate-600"}`}>{t.citation}</td>
+                    <td className="py-2 text-xs text-slate-600"><Link className="underline" to={`/thresholds#${t.rule_id}`}>{typeof t.citation === 'string' ? t.citation : t.citation.title} · View threshold and verification</Link></td>
                   </tr>
                 ))}
               </tbody>
@@ -102,7 +110,7 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
         </Card>
         <Card title="What would change this">
           <ul className="list-disc space-y-1 pl-5 text-sm">
-            {rec.what_would_change.map((r, i) => <li key={i}>{r}</li>)}
+            {rec.what_would_change.map((r, i) => <li key={i}>{r} <Link className="underline" to={`/thresholds#${rec.change_rule_ids?.[i] ?? 'nws_cap'}`}>Threshold</Link></li>)}
           </ul>
         </Card>
       </div>
@@ -112,7 +120,7 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
           <span className="flex flex-wrap items-center gap-2">
             Rationale
             <span className={`rounded px-2 py-0.5 text-xs font-semibold normal-case tracking-normal ${
-              rec.rationale_note === "AI draft pending" ? "bg-sky-100 text-sky-900"
+              rec.rationale_note === "AI draft pending" || rec.status === "preliminary" ? "bg-sky-100 text-sky-900"
                 : rec.rationale_source === "agent" ? "bg-indigo-100 text-indigo-800" : "bg-amber-100 text-amber-900"}`}>
               {rec.rationale_note === "AI draft pending" && (
                 <span className="mr-1 inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-sky-300 border-t-sky-700 align-middle" />
@@ -127,6 +135,7 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
       </Card>
 
       <LocalSignals evidence={rec.evidence} tz={tz} />
+      {!rec.facility.temporary && <MapView recId={rec.id} title="Map: facility, access routes, commute bands, local facts" />}
 
       <EvidenceList evidence={rec.evidence} tz={tz} />
     </div>
@@ -172,6 +181,7 @@ export function EvidenceList({ evidence, tz }: { evidence: Evidence[]; tz: strin
                 <td className="py-2 pr-3"><StatusBadge status={e.status} /></td>
                 <td className="py-2 pr-3 font-mono uppercase">
                   {e.source}
+                  {e.source === 'human' && <div className="mt-1 rounded bg-purple-100 px-2 py-1 text-xs normal-case text-purple-900">Human reported {(e.value as {source_name?: string})?.source_name}{(e.value as {simulated?: boolean})?.simulated ? ' · SIMULATED for the demo' : ''}</div>}
                   {isLocal(e) && <div className="mt-1"><AuthorityBadge authority={(e.value as { authority: string }).authority} /></div>}
                 </td>
                 <td className="py-2 pr-3">

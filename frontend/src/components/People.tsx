@@ -22,6 +22,10 @@ export const CODE_LABEL: Record<string, string> = {
   EXPOSURE_SUGGESTION: "Exposure suggestion",
 };
 
+const EXPOSURE_RULE =
+  "Exposure counts only road closures on a commute route (inside the home-to-facility corridor) and " +
+  "weather warnings at home. Ramp-only closures, lane closures and delays are minor: shown, not counted.";
+
 export const codeLabel = (c: string) => CODE_LABEL[c] ?? c.replace(/_/g, " ").toLowerCase();
 
 const COVERAGE_STYLE: Record<CoverageItem["status"], string> = {
@@ -54,9 +58,15 @@ export function PeopleStrip({ people }: { people: PeopleSummary }) {
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-700">
         <span><strong>{people.action_required}</strong> must act</span>
         <span><strong>{people.fyi}</strong> FYI</span>
-        <span className={people.exposed_count ? "font-semibold text-amber-800" : ""}>
+        <span className={people.exposed_count ? "font-semibold text-amber-800" : ""} title={EXPOSURE_RULE}>
           <strong>{people.exposed_count}</strong> with an exposed commute
         </span>
+        {people.minor_commute_count > 0 && (
+          <span className="cursor-help text-slate-600 underline decoration-dotted" title={EXPOSURE_RULE}>
+            <strong>{people.minor_commute_count}</strong> commute{people.minor_commute_count === 1 ? "" : "s"} pass
+            {people.minor_commute_count === 1 ? "es" : ""} near {people.minor_commute_label} (minor: not counted as exposure)
+          </span>
+        )}
         {Object.entries(people.params).filter(([k]) => k !== "posture").map(([k, v]) => (
           <span key={k} className="text-slate-500">{k.replace(/_/g, " ")}: {v}</span>
         ))}

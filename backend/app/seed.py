@@ -30,7 +30,7 @@ TZ = "America/Chicago"
 
 # Home locations: (lat, lon, NWS forecast zone, NWS county) as returned by /points.
 HOMES = {
-    "kc_mo": (39.0997, -94.5786, "MOZ037", "MOC095"),
+    "kc_mo": (39.0480, -94.5900, "MOZ037", "MOC095"),  # Midtown (not the facility's own point)
     "independence": (39.0911, -94.4155, "MOZ037", "MOC095"),
     "lees_summit": (38.9108, -94.3822, "MOZ037", "MOC095"),
     "liberty": (39.2461, -94.4191, "MOZ029", "MOC047"),
@@ -208,6 +208,9 @@ def seed() -> None:
             db.flush()
         elif any(isinstance(r, str) for r in fac.access_routes or []):
             fac.access_routes = ACCESS_SEGMENTS  # upgrade route names to segments
+        # Synthetic homes once placed at the facility's own coordinates move to Midtown.
+        for e in db.scalars(select(Employee).where(Employee.home_lat == 39.0997, Employee.home_lon == -94.5786)):
+            e.home_lat, e.home_lon = HOMES["kc_mo"][0], HOMES["kc_mo"][1]
         for f in db.scalars(select(CriticalFunction).where(CriticalFunction.facility_id == FACILITY_ID)):
             days = next((row[4] for row in FUNCTIONS if row[0] == f.code), None)
             if f.operating_days != days:

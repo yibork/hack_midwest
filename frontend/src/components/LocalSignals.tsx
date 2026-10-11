@@ -48,12 +48,13 @@ function Since({ f }: { f: LocalFactValue }) {
   return <>{what ? `${what}, ` : ""}active since {d}</>;
 }
 
-/** "31 km from facility", or why location is uncertain. */
+/** "31 km from facility (source coordinates)", or why location is uncertain. */
 function Where({ f }: { f: LocalFactValue }) {
   if (f.relevance === "uncertain" || f.distance_km == null) {
-    return <span className="font-semibold text-amber-800">location uncertain (no coordinates): not used by rules</span>;
+    return <span className="font-semibold text-amber-800" title={f.location_note ?? ""}>location uncertain (no coordinates): not used by rules</span>;
   }
-  return <>{f.distance_km} km from facility</>;
+  const how = f.location_provenance === "geocoded_text" ? "geocoded, approximate" : "source coordinates";
+  return <span title={f.location_note ?? ""}>{f.distance_km} km from facility ({how})</span>;
 }
 
 function summarize(agent: string, facts: LocalFactValue[]): string {

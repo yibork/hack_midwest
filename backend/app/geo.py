@@ -95,3 +95,39 @@ class GeoContext:
         return Relevance(distance_km=round(dist, 1), relevance=rel, matches_facility_access_route=bool(hits),
                          segments=[s.name or s.route for s in hits], ramp_segment=any(s.ramps for s in hits),
                          matches_employee_commute_routes=sorted(matched), affected_employee_ids=sorted(affected))
+
+
+# ---------------------------------------------------------------- GeoJSON helpers (GeoJSON is [lon, lat])
+
+MAX_SAMPLE_POINTS = 300
+
+
+def geometry_points(geometry: dict | None) -> list[Point]:
+    """(lat, lon) vertices of a GeoJSON Point/MultiPoint/LineString/MultiLineString, thinned to at
+    most MAX_SAMPLE_POINTS (vertices along a road are dense enough for 2-3 km buffers)."""
+    if not geometry:
+        return []
+    t, c = geometry.get("type"), geometry.get("coordinates")
+    if t == "Point":
+        flat = [c]
+    elif t in ("MultiPoint", "LineString"):
+        flat = list(c)
+    elif t == "MultiLineString":
+        flat = [pt for line in c for pt in line]
+    else:
+        return []
+    step = max(1, len(flat) // MAX_SAMPLE_POINTS)
+    pts = [(round(float(y), 5), round(float(x), 5)) for x, y in flat[::step]]
+    if flat and (round(float(flat[-1][1]), 5), round(float(flat[-1][0]), 5)) not in pts:
+        pts.append((round(float(flat[-1][1]), 5), round(float(flat[-1][0]), 5)))
+    return pts
+
+
+def points_geometry(points: list[Point]) -> dict | None:
+    """GeoJSON for (lat, lon) points: one distinct point -> Point, more -> LineString."""
+    distinct = list(dict.fromkeys((round(a, 5), round(b, 5)) for a, b in points))
+    if not distinct:
+        return None
+    if len(distinct) == 1:
+        return {"type": "Point", "coordinates": [distinct[0][1], distinct[0][0]]}
+    return {"type": "LineString", "coordinates": [[b, a] for a, b in distinct]}

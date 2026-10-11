@@ -62,7 +62,17 @@ def tick(now: datetime | None = None) -> list[dict]:
                 db.commit()
                 continue
             try:
-                result = pipeline.recheck(db, facility, job.operating_date, job_key=job.key)
+                if job.kind == "manager_recheck":
+                    from . import investigations, schemas
+                    latest = db.scalar(select(models.Recommendation).where(
+                        models.Recommendation.facility_id == facility.id,
+                        models.Recommendation.operating_date == job.operating_date)
+                        .order_by(models.Recommendation.evaluated_at.desc()).limit(1))
+                    if latest and latest.status == "preliminary":
+                        continue  # retry next tick once the previous check finishes
+                    result = investigations.request(db, latest, schemas.InvestigationIn(action="recheck_now")) if latest else {"error": "No target-day recommendation"}
+                else:
+                    result = pipeline.recheck(db, facility, job.operating_date, job_key=job.key)
                 job.status = "done"
             except Exception as e:  # noqa: BLE001 - keep the scheduler alive; the job records the failure
                 log.exception("scheduled job %s failed", job.key)

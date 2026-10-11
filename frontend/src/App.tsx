@@ -10,6 +10,7 @@ import RecordPage from "./pages/RecordPage";
 import SecurityPage from "./pages/SecurityPage";
 import SourcesPage from "./pages/SourcesPage";
 import TeamPage from "./pages/TeamPage";
+import ThresholdsPage from "./pages/ThresholdsPage";
 
 const NAV: Record<ViewerRole, { to: string; label: string; hint: string }[]> = {
   facility_manager: [
@@ -18,6 +19,7 @@ const NAV: Record<ViewerRole, { to: string; label: string; hint: string }[]> = {
     { to: "/team", label: "Teams", hint: "Supervisor boards" },
     { to: "/security", label: "Access list", hint: "Security desk view" },
     { to: "/sources", label: "Sources", hint: "Local signals allowlist" },
+    { to: "/thresholds", label: "Thresholds", hint: "Policy and verified citations" },
     { to: "/personas", label: "Demo personas", hint: "ntfy QR codes" },
     { to: "/national", label: "National scan", hint: "Active US alerts" },
     { to: "/record", label: "Record", hint: "Replay decisions" },
@@ -71,6 +73,7 @@ function Shell() {
               <Route path="/facility" element={<FacilityPage />} />
               <Route path="/decide" element={<DecidePage />} />
               <Route path="/sources" element={<SourcesPage />} />
+              <Route path="/thresholds" element={<ThresholdsPage />} />
               <Route path="/personas" element={<PersonasPage />} />
               <Route path="/national" element={<NationalPage />} />
               <Route path="/record" element={<RecordPage />} />

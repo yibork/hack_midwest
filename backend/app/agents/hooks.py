@@ -152,6 +152,13 @@ class LLMBudget(HookProvider):
 
     def check(self, event: BeforeModelCallEvent) -> None:
         state = event.invocation_state or {}
+        if state.get("investigation_budget_key"):
+            if state.get("closed") and state["closed"].is_set():
+                raise LLMBudgetReached("Investigation closed; refusing late model calls")
+            from ..investigations import reserve_model_call
+            if not reserve_model_call(state["investigation_budget_key"]):
+                raise LLMBudgetReached("Investigation model budget exhausted; deterministic checks remain available")
+            return
         key = state.get("llm_budget_key") or state.get("evaluation_id")
         if not key:
             return
