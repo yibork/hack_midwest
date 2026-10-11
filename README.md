@@ -2,7 +2,6 @@
 ### Make the call. Reach the right people. Keep the reasons.
 
 🌐 **[Try the live app](https://closurecall.duckdns.org/team)**
-### Make the call. Reach the right people. Keep the reasons.
 
 It’s 4 a.m. Severe weather is approaching, and employees will soon leave home. A facility manager must decide: **open normally, delay, dismiss early, offer telework or close?**
 
@@ -12,7 +11,7 @@ The answer is scattered across weather alerts, road reports and employee schedul
 
 ## How it works
 
-![Closure Call architecture](closure-call-architecture.png)
+![Closure Call decision workflow](closure-call-architecture.png)
 
 *Solid arrows show the workflow. Dashed arrows show information saved to the decision record.*
 
@@ -22,7 +21,7 @@ Collect live NWS weather data, river conditions and available local reports. Con
 
 ### 2. Recommend and explain
 
-Code applies reviewed thresholds to recommend an operating status. The manager sees the supporting evidence, source timestamps, missing information and what would change the recommendation.
+Code applies reviewed thresholds to recommend an operating status. The manager sees supporting evidence, source timestamps, missing information and what would change the recommendation.
 
 Official hazard definitions inform the thresholds; facility policy determines the proposed response.
 
@@ -34,17 +33,17 @@ Not convinced? The manager can ask:
 - “What is the river forecast for the morning?”
 - “Why recommend a delay instead of closure?”
 
-Strands agents investigate approved sources or explain the saved evidence. New findings produce a revised recommendation for the manager to review.
+Strands agents investigate approved sources or explain saved evidence. New findings produce a revised recommendation for the manager to review.
 
 ### 4. Decide and notify
 
-The manager approves or overrides the recommendation with a reason. Code then rechecks assignments, shifts, leave and essential roles before preparing the appropriate notifications.
+The manager approves or overrides the recommendation with a reason. Code rechecks assignments, shifts, leave and essential roles before sending the appropriate notifications.
 
 An onsite employee may need a new reporting time. Someone on leave may need no routine alert. Essential staff receive instructions specific to their responsibilities.
 
 ### 5. Keep the decision record
 
-Save what was known, which rules applied, what the manager decided and the notification outcomes—so the full decision can be reconstructed later.
+Save what was known, which rules applied, what the manager decided and the notification outcomes—so the decision can be reconstructed later.
 
 ## Evidence behind the decision
 
@@ -58,13 +57,30 @@ Save what was known, which rules applied, what the manager decided and the notif
 
 News alone does not trigger closure. Missing data is marked unknown. Recipient selection follows explicit rules, and operational notifications require manager approval.
 
+## CI/CD and cloud deployment
+
+![Closure Call CI/CD pipeline, cloud hosting and database connections](closure-call-cicd-cloud.png)
+
+Every update follows a **CI/CD pipeline**: we push code to GitHub, GitHub Actions tests it, and successful checks on main trigger deployment when auto-deployment is enabled.
+
+| Part | What it does |
+| --- | --- |
+| **CI — Continuous Integration** | Runs backend and frontend tests and builds the frontend |
+| **CD — Continuous Deployment** | Deploys through SSH and rebuilds the application with Docker on Akamai Cloud |
+| **Database interaction** | SQLAlchemy reads and saves facilities, employees, evidence, decisions and notification records |
+| **External services** | Provide weather data, Akamai AI inference, ntfy push notifications and Resend email |
+
+The application uses configured PostgreSQL, with SQLite as a fallback. Raw evidence snapshots are stored separately on persistent disk.
+
+*Steps 1–3 in the figure describe releasing updates. Steps 4–5 describe everyday use of the deployed application.*
+
 ## Built for Hack Midwest
 
 | Challenge | Role in Closure Call |
 | --- | --- |
 | **USDA** | Facility decisions, targeted notifications and a clear decision record |
 | **AWS Strands Agents SDK** | Agents that gather evidence and investigate manager questions |
-| **Akamai Cloud** | Cloud hosting for the application and supporting services |
+| **Akamai Cloud** | Hosting the application and providing AI inference |
 
 ## The demo journey
 
