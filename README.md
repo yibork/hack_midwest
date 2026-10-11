@@ -68,6 +68,19 @@ Choose the **Facility manager** demo role. Start by evaluating a facility, then 
 <!-- **Official sources define hazards; our prototype facility policy defines the proposed response.** The manager makes the final decision. These mappings are not official USDA directives.
 
 *National scan demonstrates live alerts. Use the seeded facility to demonstrate the employee notification workflow; temporary national-scan facilities do not have an employee roster.* -->
+### One decision, different instructions
+
+A facility-wide telework decision does not mean everyone receives the same message. These demo emails show how Closure Call communicates each employee’s responsibilities.
+
+**Remote-work instruction:** Stay home and begin work at 07:30.
+
+![Email instructing an employee to work remotely from 07:30](email1.jpeg)
+
+**Manager-authorized call-in:** Report onsite for animal care at 07:30, with building-access information and a confirmation link.
+
+![Email instructing a called-in employee to report onsite and confirm receipt](email2.jpeg)
+
+*Demo emails for a synthetic office in Clinton, Iowa, referencing a real NWS flood alert.*
 ## AWS: how we use Strands Agents SDK
 
 ![Strands agents connected to Akamai AI inference, with rules-based recommendations and human approval](closure-call-strands-agents.png)
