@@ -90,7 +90,8 @@ def evaluate_live(db, facility, alert=None, scan_evidence=None):
     evidence += nwps.collect_nearby(facility, compute_windows(schemas.Facility.model_validate(facility), now, load_policy(), day))
     services.store_evidence(db, evidence, facility.id, eid)
     label = "Real NWS alert, live · Synthetic facility relocated to " + facility.address.removeprefix("Synthetic facility relocated to ") + " for demonstration"
-    note = f"Treated as a workday for demonstration. Target day: {day}; real current clock and facility windows. Alerts outside those windows do not trigger a posture."
+    from .calendar import demo_workday_note
+    note = demo_workday_note(day)
     result = evaluate(schemas.Facility.model_validate(facility), evidence, now, operating_date=day,
                       target_mode="demo_workday", target_note=note)
     result.evaluation_id, result.status = eid, "final"

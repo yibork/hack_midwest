@@ -37,9 +37,7 @@ def choose_target(fac: schemas.Facility, now: datetime, target_date: date | None
     if demo_workday:
         if not settings.demo_mode:
             raise ValueError("demo_workday requires DEMO_MODE=1")
-        why = calendar.why_not(local.date(), fac.operating_days)
-        return local.date(), "demo_workday", (f"DEMO: today ({calendar.label(local.date())}) evaluated as a workday"
-                                              + (f"; really, {why[0].lower() + why[1:]}." if why else "."))
+        return local.date(), "demo_workday", calendar.demo_workday_note(local.date())
     if target_date is not None and scheduled:
         return target_date, "scheduled", f"Scheduled re-evaluation for {calendar.label(target_date)}: the deterministic check changed."
     if target_date is not None:

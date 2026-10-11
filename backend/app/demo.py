@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import models, pipeline, record, schemas, services
+from . import calendar, models, pipeline, record, schemas, services
 from .config import settings
 from .db import get_db, utcnow
 from .roles import manager_only
@@ -125,7 +125,7 @@ def synthetic(db, facility):
                 for kind, value in rows]
     services.store_evidence(db, evidence, facility.id, eid)
     result = evaluate(fac, evidence, clock, operating_date=day, target_mode="demo_workday",
-                      target_note=f"SIMULATED: today ({day}) treated as a workday; demo clock 04:00 local.")
+                      target_note=f"SIMULATED. {calendar.demo_workday_note(day)} Demo clock 04:00 local.")
     result.evaluated_at = now
     result.evaluation_id = eid
     result.scenario_id, result.scenario_kind = eid, "simulated"

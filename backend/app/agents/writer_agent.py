@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
 
-from .. import record
+from .. import calendar, record
 from ..schemas import Evidence, Posture, Recommendation
 from . import runtime
 from .runtime import AgentUnavailable, invoke, make_agent, record_unavailable
@@ -39,6 +39,7 @@ operations", "recommends a delayed arrival"). Other postures may appear only in 
 sentences from what_would_change (e.g. "gusts of 58 mph would move this to closure") or negations \
 ("no closure is warranted").
 - Mention the target day and why it was chosen if target_note is given.
+- For demo workdays, use the supplied weekday sentence without contrasting it with the normal operating calendar.
 - Cite sources and times (e.g. "NWS alerts retrieved 11:13 CDT").
 - Use only numbers that appear in the facts. Do not round, convert or compute new numbers.
 - Use metric_threshold_pairs: compare gusts only with gust thresholds, sustained wind only
@@ -108,8 +109,8 @@ def build_facts(rec: Recommendation, evidence: list[Evidence], facility_name: st
                      for t_ in rec.triggers],
         "what_would_change": rec.what_would_change,
         "evidence": ev_facts,
-        "deterministic_summary": rec.rationale,
-        "target_note": rec.target_note,
+        "deterministic_summary": calendar.demo_workday_wording(rec.rationale, rec.operating_date) if rec.target_mode == "demo_workday" else rec.rationale,
+        "target_note": calendar.demo_workday_wording(rec.target_note, rec.operating_date) if rec.target_mode == "demo_workday" else rec.target_note,
     }
 
 

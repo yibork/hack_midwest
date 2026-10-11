@@ -461,7 +461,8 @@ def template_rationale(rec: Recommendation, facility: Facility, w: Windows, aler
     parts = [f"For {facility.name} on {w.operating_date:%A, %B %d}, the rules engine "
              f"(policy {rec.policy_version}) recommends {posture}."]
     if rec.target_note:
-        parts.append(f"Target day: {rec.target_note}")
+        from ..calendar import demo_workday_wording
+        parts.append(f"Target day: {demo_workday_wording(rec.target_note, rec.operating_date)}")
     if rec.triggers:
         for t in rec.triggers:
             if t.units:

@@ -51,6 +51,8 @@ def table(headings, rows):
 
 def render(db, decision):
     rec = db.get(models.Recommendation, decision.recommendation_id)
+    from .calendar import demo_workday_wording
+    target_note = demo_workday_wording(rec.target_note, rec.operating_date) if rec.target_mode == "demo_workday" else rec.target_note
     facility = db.get(models.Facility, rec.facility_id)
     zone = ZoneInfo(facility.timezone)
 
@@ -74,7 +76,7 @@ def render(db, decision):
                 f"<p>{esc(facility.address)}</p><p><strong>{esc(badge)}</strong></p>",
                 "<h2>Decision and target day</h2>",
                 table(["Field", "Recorded value"], [
-                    ["Target day", esc(rec.operating_date.strftime('%a %b %d, %Y'))], ["Why this target day", esc(rec.target_note)],
+                    ["Target day", esc(rec.operating_date.strftime('%a %b %d, %Y'))], ["Why this target day", esc(target_note)],
                     ["Decision time", when(decision.decided_at)], ["Manager", esc(decision.manager_name)],
                     ["Recommended posture", esc(POSTURES.get(rec.posture, rec.posture))],
                     ["Final posture", esc(POSTURES.get(decision.final_posture, decision.final_posture))],

@@ -76,7 +76,7 @@ def test_demo_workday_needs_demo_mode(monkeypatch):
         pipeline.choose_target(fac(), at(2026, 10, 10, 9), demo_workday=True)
     monkeypatch.setattr(pipeline, "settings", dataclasses.replace(pipeline.settings, demo_mode=True))
     day, mode, why = pipeline.choose_target(fac(), at(2026, 10, 10, 9), demo_workday=True)
-    assert (day, mode) == (date(2026, 10, 10), "demo_workday") and why.startswith("DEMO:")
+    assert (day, mode) == (date(2026, 10, 10), "demo_workday") and why == "Saturday is treated as a workday for this demonstration."
 
 
 def test_recommendation_states_target_and_why():

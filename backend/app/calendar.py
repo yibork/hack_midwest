@@ -5,9 +5,26 @@ New Year's Day, Martin Luther King Jr. Day, Washington's Birthday, Memorial Day,
 Independence Day, Labor Day, Columbus Day, Veterans Day, Thanksgiving Day, Christmas Day.
 """
 from datetime import date, timedelta
+import re
 
 DEFAULT_DAYS = (0, 1, 2, 3, 4)  # Mon-Fri for office staff
 DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def demo_workday_note(d: date, language: str = "en") -> str:
+    if language == "es":
+        day = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"][d.weekday()]
+        return f"El {day} se considera un día laborable para esta demostración."
+    return f"{d:%A} is treated as a workday for this demonstration."
+
+
+def demo_workday_wording(text: str | None, d: date) -> str | None:
+    """Presentation-only cleanup of old copy; never rewrite saved records."""
+    if not text:
+        return text
+    text = re.sub(r"DEMO:\s*today\s*\([^)]*\)\s*evaluated as a workday(?:;\s*really,.*?\.)?\.?",
+                  lambda _: demo_workday_note(d), text, flags=re.I)
+    return text.replace("Treated as a workday for demonstration.", demo_workday_note(d))
 
 
 def _nth(year: int, month: int, weekday: int, n: int) -> date:

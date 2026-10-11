@@ -75,8 +75,13 @@ def recommendation_detail(db: Session, rec: models.Recommendation) -> schemas.Re
     evidence = db.scalars(select(models.Evidence).where(models.Evidence.id.in_(rec.evidence_ids))).all()
     decision = db.scalar(select(models.Decision).where(models.Decision.recommendation_id == rec.id))
     people = people_summary(db, rec, facility)
+    values = schemas.Recommendation.model_validate(rec).model_dump()
+    if rec.target_mode == "demo_workday":
+        from .calendar import demo_workday_wording
+        for field in ("target_note", "rationale", "template_rationale"):
+            values[field] = demo_workday_wording(values.get(field), rec.operating_date)
     return schemas.RecommendationDetail(
-        **schemas.Recommendation.model_validate(rec).model_dump(),
+        **values,
         change_rule_ids=[change_rule_id(line) for line in rec.what_would_change],
         facility=schemas.Facility.model_validate(facility),
         evidence=[schemas.Evidence.model_validate(e) for e in sorted(evidence, key=lambda e: e.retrieved_at)],

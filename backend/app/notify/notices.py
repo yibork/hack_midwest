@@ -159,6 +159,9 @@ def decorate_facts(db, facility, rec, facts, *, evidence=None, rule_map=None):
             kind = {"SIMULATED alert": "alerta simulada (SIMULATED)", "REPLAY alert (not current)": "alerta grabada (REPLAY, no actual)",
                     "real NWS alert": "alerta real del NWS", "saved facility evidence": "evidencia guardada de la oficina"}[kind]
         facts.footer = ("Demo: oficina sintética, " if facts.lang == "es" else "Demo: synthetic office, ") + kind
+        if rec.target_mode == "demo_workday":
+            from ..calendar import demo_workday_note
+            facts.footer += ". " + demo_workday_note(facts.operating_date, facts.lang)
 
 
 def manager_digest(plan, hazard, sent=0, acknowledged=0):
