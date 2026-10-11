@@ -137,12 +137,16 @@ def relocate_fixture(db, monkeypatch):
 
 
 def test_live_relocation_preserves_roster_topics_functions_and_records(demo_db, monkeypatch):
+    from app.sources import airnow
+    air_locations = []
+    monkeypatch.setattr(airnow, "collect", lambda facility, day, **kw: air_locations.append((facility.lat, facility.lon, day)) or [])
     original = demo_db.get(models.Facility, seed.FACILITY_ID)
     before = [(e.id, e.name, e.ntfy_topic) for e in demo_db.scalars(select(models.Employee))]
     rec, scan = relocate_fixture(demo_db, monkeypatch)
     facility = demo_db.get(models.Facility, rec.facility_id)
     assert facility.demo_origin_id == seed.FACILITY_ID and not facility.temporary
     assert facility.timezone == "America/Denver" and facility.nws_office == "BOU"
+    assert air_locations == [(facility.lat, facility.lon, rec.operating_date)]
     assert original.lat != facility.lat and original.timezone == "America/Chicago"
     assert before == [(e.id, e.name, e.ntfy_topic) for e in demo_db.scalars(select(models.Employee))]
     inputs = notices.load_inputs(demo_db, facility, rec.operating_date)

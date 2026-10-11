@@ -51,7 +51,7 @@ rules:
       publisher: U.S. EPA / AirNow
       url: https://www.airnow.gov/aqi/aqi-basics/
       section_or_page: "AQI Basics for Ozone and Particle Pollution: six-category table"
-      retrieved_at: "2026-10-11T06:00:00Z"
+      retrieved_at: "2026-10-11T05:40:00Z"
     justification: >
       EPA defines AQI 101–150 as Unhealthy for Sensitive Groups. Facility policy v1.0
       keeps the operating posture unchanged while supervisors offer unscheduled telework

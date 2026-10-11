@@ -1,5 +1,60 @@
 # Local signal sources
 
+## EPA AirNow nationwide supplementary signal (verified 2026-10-11 UTC)
+
+The [official API replacement announcement](https://docs.airnowapi.org/docs/AirNowAPIUpdates2026June.pdf)
+documents the retirement of the older `latLong` services on September 30, 2026. We use:
+
+- `https://www.airnowapi.org/aq/observation/current/ziplatlong/`
+- `https://www.airnowapi.org/aq/forecast/current/`
+
+Both are HTTPS latitude/longitude queries with `distance=25` miles and
+`format=application/json`. The configured key is added **only to the wire request**.
+The public [web-services overview](https://docs.airnowapi.org/webservices) and replacement
+announcement were opened; detailed parameter pages require a developer login. Both endpoints
+also returned HTTP 200 in a credential-safe live check at the KC coordinates. The returned
+replacement schema was verified directly, not inferred from retired endpoint examples:
+
+- Current: `dateObserved`, `hourObserved`, `localTimeZone`, `parameterName`, `nowcastAQI`,
+  `aqiCategoryName`, `reportingAreaName` (also monitoring-site and lookup metadata).
+- Forecast: `dateIssue`, `dateValid`, `parameterName`, `aqi`, `categoryName`, `categoryNumber`,
+  `reportingArea`, `reportingAreaCode`, `stateCode`, `forecastAgency`, `discussion`, `actionDay`.
+
+Only numeric AQI is used; missing/negative/category-only values are unknown, never zero or
+good. Pollutants (including PM2.5 and ozone) retain their individual AQI, category, reporting
+area and observation time. Categories are independently mapped using the verified
+[EPA category table](https://www.airnow.gov/aqi/aqi-basics/). Unsupported/missing pollutants
+remain unknown. Current observation hours use the supplied timezone, age independently,
+and become stale after two hours even if just fetched. A forecast's issue field is a date,
+not an issuance hour; its two-hour refresh limit is therefore retrieval-based. The original
+issue date is preserved, and only `dateValid` matching the recommendation target day applies.
+Current readings never substitute for a future-day forecast. The higher applicable fresh AQI
+is used; stale readings do not trigger a new posture.
+
+Collection uses fixed allowlisted endpoints, disables redirects, and deliberately avoids
+HTTP clients that log credential-bearing request URLs. Exceptions are described by type and
+HTTP status only. The key, URL-encoded/JSON-escaped forms and credential fields are removed
+before normalized provider JSON is hashed and saved. Public evidence/record URLs omit the
+key parameter entirely. Saved-copy links explicitly describe credential-safe normalized JSON.
+
+AirNow is available to any facility coordinate, including relocated demos; regional reporting
+coverage and forecast horizons still vary. Missing keys, provider failures and uncovered
+target dates are explicit unknowns. Evaluations, scheduled rechecks, manager rechecks,
+stale-source refreshes and evidence sweeps collect it deterministically without model calls.
+Simulation/replay never fetch or mix in live AirNow data.
+
+The [AirNow FAQ](https://docs.airnowapi.org/faq) documents hourly observations, daily forecasts,
+variable pollutant/forecast availability and rate limiting. This integration requests only
+the selected facility, not a nationwide polling/database loop. AirNow describes its data as
+preliminary, not regulatory monitoring; this is supplementary evidence in a synthetic,
+manager-approved prototype, not an EPA or USDA operating-status directive.
+
+Policy 1.0.3 maps AQI 101–150 to a sensitive-employees flag and supervisor suggestions without
+changing posture; 151–200 to telework; and 201+ (including Hazardous above 300) to closure of
+onsite non-emergency work. These are facility choices, not EPA-mandated postures. Two synthetic
+employees have a private need type; manager/supervisor views and notices use only
+“accommodation on file,” never the type or medical details.
+
 ## Live national demo (verified 2026-10-11 UTC)
 
 The presenter scans `/api/demo/national-alerts`, backed by the actual

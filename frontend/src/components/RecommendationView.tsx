@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Evidence, RecommendationDetail } from "../api";
 import RecommendationHero from "./RecommendationHero";
+import AirQuality from './AirQuality';
 import SavedCopyLinks from "./SavedCopyLinks";
 import Disclosure from './Disclosure';
 import {CitedAnswer} from './InvestigationPanel';
@@ -99,6 +100,7 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
       </Disclosure>
       {!rec.facility.temporary && <Disclosure title="Map" summary="Facility, access routes, commute bands and local facts"><MapView recId={rec.id} title="Map: facility, access routes, commute bands, local facts" /></Disclosure>}
 
+      <AirQuality evidence={rec.evidence} tz={tz} targetDay={rec.operating_date} />
       <Disclosure title="Evidence" summary={`${rec.evidence.length} sources · ${rec.evidence.every(e => e.status === 'ok' && (!e.valid_until || new Date(e.valid_until).getTime() > Date.now())) ? 'all current' : 'missing or stale sources; see details'}`}>
       <EvidenceList evidence={rec.evidence} tz={tz} />
       </Disclosure>
@@ -126,17 +128,19 @@ function CopyButton({ text }: { text: string }) {
 export function NearestThresholds({rec}: {rec: RecommendationDetail}) {
   const [expanded, setExpanded] = useState(false);
   const rows = rec.what_would_change.map((text, index) => {
+    const aqi = text.match(/AQI (unknown|\d+) \/ (\d+)/);
     const threshold = text.match(/Gusts reaching ([\d.]+) mph/i);
     const observed = text.match(/forecast peak is ([\d.]+) mph/i);
-    return {text, index, threshold: threshold ? Number(threshold[1]) : null,
-      observed: observed ? Number(observed[1]) : null};
+    return {text, index, metric: aqi ? 'AQI' : 'Gusts', units: aqi ? '' : ' mph',
+      threshold: aqi ? Number(aqi[2]) : threshold ? Number(threshold[1]) : null,
+      observed: aqi ? (aqi[1] === 'unknown' ? null : Number(aqi[1])) : observed ? Number(observed[1]) : null};
   }).sort((a, b) => (a.threshold != null && a.observed != null ? Math.abs(a.threshold - a.observed) : Infinity)
     - (b.threshold != null && b.observed != null ? Math.abs(b.threshold - b.observed) : Infinity));
   if (!rows.length) return <p className="text-sm text-slate-600">No nearer escalation threshold. Recheck if conditions change.</p>;
   return <div className="space-y-3 text-sm">
     {(expanded ? rows : rows.slice(0, 2)).map(row => <div key={row.index}>
-      {row.threshold != null && <><div className="font-semibold">Gusts {row.observed ?? "unavailable"} / {row.threshold} mph</div>
-        <div className="threshold-progress" role="progressbar" aria-label={`Gusts toward ${row.threshold} mph`}
+      {row.threshold != null && <><div className="font-semibold">{row.metric} {row.observed ?? "unavailable"} / {row.threshold}{row.units}</div>
+        <div className="threshold-progress" role="progressbar" aria-label={`${row.metric} toward ${row.threshold}${row.units}`}
           aria-valuemin={0} aria-valuemax={row.threshold} aria-valuenow={row.observed == null ? undefined : Math.min(row.observed, row.threshold)}>
           <span style={{width: `${row.observed == null ? 0 : Math.min(100, 100 * row.observed / row.threshold)}%`}} /></div></>}
       <p className="mt-1">{humanText(row.text)} <Link className="underline" to={`/thresholds#${rec.change_rule_ids?.[row.index] ?? 'nws_cap'}`}>Threshold</Link></p>
@@ -166,7 +170,7 @@ export function EvidenceList({ evidence, tz }: { evidence: Evidence[]; tz: strin
               <tr key={e.id} className={`border-t border-slate-100 align-top ${e.status === "unknown" ? "bg-red-50" : e.status === "stale" ? "bg-amber-50" : ""}`}>
                 <td className="py-2 pr-3"><StatusBadge status={e.status} /></td>
                 <td className="py-2 pr-3">
-                  {{nws: "NWS", nwps: "NOAA river", modot: "MoDOT", roster: "Schedule", demo: "Demo scenario", local: "Local report", human: "Staff report", sweep: 'Evidence refresh'}[e.source]}
+                  {{nws: "NWS", nwps: "NOAA river", modot: "MoDOT", roster: "Schedule", demo: "Demo scenario", local: "Local report", human: "Staff report", sweep: 'Evidence refresh', airnow: 'EPA AirNow'}[e.source]}
                   {e.scenario_kind && <div className="text-xs font-bold">{e.scenario_kind === "simulated" ? "SIMULATED" : "REPLAY"}</div>}
                   {e.source === 'human' && <div className="mt-1 rounded bg-purple-100 px-2 py-1 text-xs normal-case text-purple-900">Human reported {(e.value as {source_name?: string})?.source_name}{(e.value as {simulated?: boolean})?.simulated ? ' · SIMULATED for the demo' : ''}</div>}
                   {isLocal(e) && !e.scenario_kind && <div className="mt-1"><AuthorityBadge authority={(e.value as { authority: string }).authority} /></div>}

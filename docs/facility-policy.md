@@ -4,6 +4,15 @@ These are Closure Call prototype choices for a synthetic facility, not USDA dire
 federal hazard standards. A manager authorizes every operating decision and notification.
 Source verification confirms a published definition, not federal endorsement of our response.
 
+Air quality (policy 1.0.3): EPA AQI categories are verified; operating mappings are our choices.
+Use the highest fresh pollutant AQI from current same-day observations or a forecast for the
+target day. AQI 101–150 during operating hours flags sensitive employees without changing
+posture; supervisors could offer unscheduled telework to scheduled onsite employees with an
+accommodation on file, subject to eligibility/emergency obligations. AQI 151–200 maps to
+telework, and AQI 201+ to closure for onsite non-emergency work. AQI above 300 is EPA's Hazardous
+category and also meets closure. Missing/stale/non-numeric AQI is unknown, not good. AirNow is
+preliminary supplementary data, not regulatory monitoring or an official closure directive.
+
 Weather responses: Extreme/Immediate CAP alerts during work map to closure; EAX High Wind
 Warning or equivalent commute wind maps to closure; EAX advisory wind maps to delayed arrival;
 flood warnings map to telework; convective warnings map to delayed arrival before opening or

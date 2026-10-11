@@ -34,7 +34,7 @@ export interface Evidence {
   id: string;
   facility_id: string | null;
   evaluation_id: string | null;
-  source: "nws" | "nwps" | "modot" | "roster" | "demo" | "local" | "human" | "sweep";
+  source: "nws" | "nwps" | "modot" | "roster" | "demo" | "local" | "human" | "sweep" | "airnow";
   kind: string;
   value: unknown;
   units: string | null;
@@ -173,6 +173,7 @@ export interface CoverageItem {
 }
 
 export interface PeopleSummary {
+  supervisor_suggestion_count?: number;
   exposure_status?: 'current' | 'unknown';
   exposure_note?: string | null;
   posture: Posture;

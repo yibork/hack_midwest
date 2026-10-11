@@ -441,6 +441,8 @@ def template_rationale(rec: Recommendation, facility: Facility, w: Windows, aler
                 if t.units == "AQI":
                     parts.append(f"Air quality rule '{t.rule_id}': AQI {t.observed} meets {t.threshold} "
                                  f"(margin {t.margin:+g}); highest fresh current or target-day forecast applies.")
+                    if t.rule_id == "air_quality_sensitive":
+                        parts.append("Sensitive employees flag: supervisors could offer unscheduled telework to eligible employees with an accommodation on file.")
                     continue
                 kind = "sustained wind" if "sustained forecast" in t.description else "peak gust"
                 parts.append(f"Rule '{t.rule_id}' fired: forecast {kind} of {t.observed} {t.units} in the "

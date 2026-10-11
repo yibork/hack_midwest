@@ -179,6 +179,7 @@ def mock_sources(monkeypatch, db, rec):
     monkeypatch.setattr(sweep.weather_agent, 'fetch_alerts', weather)
     monkeypatch.setattr(sweep.weather_agent, 'fetch_forecast', weather)
     monkeypatch.setattr(sweep.exposure, 'collect', lambda *args, **kw: called.append('home'))
+    monkeypatch.setattr(sweep.airnow, 'collect', lambda fac, day: called.append(('airnow', fac.lat, fac.lon, day)) or [])
     monkeypatch.setattr(sweep.nwps, 'collect', lambda w: called.append(('river', w.operating_date)) or [])
     monkeypatch.setattr(sweep.forecaster, 'collect', lambda day: called.append(('products', day)) or [])
     sources = ls.sources()
@@ -204,6 +205,7 @@ def test_sweep_exhausted_budget_refreshes_all_sources_and_keeps_target_reason(mo
     assert {s.id for s in sources} <= set(c for c in calls if isinstance(c, str))
     assert rec.operating_date in calls and ('products', rec.operating_date) in calls
     assert ('river', rec.operating_date) in calls
+    assert ('airnow', fac.lat, fac.lon, rec.operating_date) in calls
     assert pending.status == 'final' and pending.target_note == reason
     assert pending.previous_recommendation_id == rec.id
     assert any('budget exhausted' in s for s in row.result['limitations'])

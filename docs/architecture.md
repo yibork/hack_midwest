@@ -1,5 +1,21 @@
 # Architecture
 
+## Nationwide air quality
+
+`sources/airnow.py` collects EPA AirNow current observations and target-day forecasts at
+facility coordinates, including relocated demos. Fixed HTTPS endpoints, blocked redirects,
+credential-safe snapshots and sanitized provenance prevent API keys reaching logs or records.
+Two-hour freshness is checked per pollutant observation and per forecast retrieval. Rules
+use the highest fresh applicable AQI, never substitute today's reading for tomorrow, and
+never downgrade a stronger hazard posture. See sources.md for verified replacement schemas.
+
+Facility policy 1.0.3 adds cited AQI categories: 101–150 keeps posture but proposes supervisor
+review, 151–200 telework, 201+ non-emergency closure. The private `air_quality_sensitive` need
+is seeded additively for two synthetic employees. Only “accommodation on file” and a generic
+review suggestion are public; no new schema columns or medical disclosures are needed.
+Supervisor summaries remain behind human approval and dispatch guard. Live rechecks/sweeps
+refresh AirNow in deterministic code; replay/simulation never call the live provider.
+
 ## Manager workflow and read-only audit
 
 The Facility screen shows the posture, people/staffing and nearest two thresholds first;

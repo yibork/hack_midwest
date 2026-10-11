@@ -188,8 +188,10 @@ def team(supervisor_id: str | None = None, v: Viewer = Depends(require("supervis
     designation = {m.id: m.designation for m in members}
     suggestions = [schemas.ExposureSuggestion(
         employee_id=n.employee_id, name=names[n.employee_id], audience_text=n.audience_text,
-        suggestion="consider offering unscheduled telework/leave per agency policy")
-        for n in mine if EXPOSURE_CODES & set(n.reason_codes) and designation[n.employee_id] != "emergency"]
+        suggestion=("Accommodation on file: offer unscheduled telework per agency policy"
+                    if "SUPERVISOR_SUGGESTION" in n.reason_codes else "consider offering unscheduled telework/leave per agency policy"))
+        for n in mine if (EXPOSURE_CODES | {"SUPERVISOR_SUGGESTION"}) & set(n.reason_codes)
+        and designation[n.employee_id] != "emergency"]
     return schemas.TeamBoard(
         supervisor=schemas.EmployeePublic.model_validate(sup),
         notice=schemas.Notice.model_validate(notice) if notice else None,

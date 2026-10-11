@@ -131,6 +131,9 @@ function conditionText(condition: unknown): string {
   }
 
   const c = condition;
+  if (c.type === 'air_quality') {
+    return `Highest fresh current or target-day forecast AQI at least ${c.min_aqi}${c.below_aqi ? `, below ${c.below_aqi}` : ''}, during ${windowText(c.window, 'operating hours')}. Facility policy choice anchored to EPA categories.`;
+  }
 
   if (c.type === "forecast_gust" || c.type === "forecast_wind") {
     const bounds: string[] = [];
