@@ -42,6 +42,8 @@ class Facility(ORMModel):
     access_routes: list[AccessSegment] = []
     operating_days: list[int] | None = None  # 0=Mon..6=Sun; None = Mon-Fri
     temporary: bool = False
+    demo_origin_id: str | None = None
+    nws_office: str | None = None
 
     @property
     def route_names(self) -> list[str]:
@@ -375,6 +377,8 @@ class DecisionClock(BaseModel):
 
 
 class PeopleSummary(BaseModel):
+    exposure_status: Literal["current", "unknown"] = "current"
+    exposure_note: str | None = None
     posture: Posture
     params: dict
     clock: DecisionClock

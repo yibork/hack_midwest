@@ -183,7 +183,7 @@ def _check_alert(rule: dict, clause: dict, alerts: list[dict], alerts_ev: Eviden
             threshold=", ".join(criteria) + f" during {clause.get('window', 'operating_day').replace('_', ' ')}",
             observed=f"{a.get('event')} ({a.get('severity')}/{a.get('urgency')}/{a.get('certainty')}), {span}",
             citation=rule["citation"], posture=posture,
-            evidence_id=alerts_ev.id if alerts_ev else None,
+            evidence_id=a.get("_evidence_id") or (alerts_ev.id if alerts_ev else None),
         ), a
     return None
 
@@ -229,6 +229,9 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
 
     alerts_ev = by_kind.get("active_alerts")
     alerts = alerts_ev.value.get("alerts", []) if alerts_ev and alerts_ev.status != "unknown" else []
+    if any(e.kind == "active_alerts" and isinstance(e.value, dict) and e.value.get("selected_live_alert") for e in evidence_list):
+        alerts = [{**a, "_evidence_id": e.id} for e in evidence_list if e.kind == "active_alerts"
+                  and effective_status(e, now) == "ok" for a in e.value.get("alerts", [])]
     wind_ev = by_kind.get("wind_forecast")
     commute_passed = now >= w.commute_end
     commute_peak = peak_gust(wind_ev, w.commute_start, w.commute_end)

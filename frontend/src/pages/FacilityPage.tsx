@@ -19,7 +19,7 @@ export default function FacilityPage() {
     [facilityId],
   );
   const [evaluating, setEvaluating] = useState(false);
-  const facility = selectedFacility ?? latest.data?.facility;
+  const facility = latest.data?.facility ?? selectedFacility;
   const [evalError, setEvalError] = useState<string | null>(null);
   const [runningEval, setRunningEval] = useState<string | null>(null);
   const [target, setTarget] = useState<string>("next"); // "next" | "demo" | YYYY-MM-DD

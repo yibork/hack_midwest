@@ -53,7 +53,7 @@ def test_calm_is_normal_high_confidence():
     assert rec.triggers == []
     assert rec.confidence == "high"
     assert any("58 mph" in c and "closure" in c and "15 mph" in c for c in rec.what_would_change)
-    assert rec.policy_version.startswith("1.0.1+")
+    assert rec.policy_version.startswith("1.0.2+")
 
 
 def test_extreme_immediate_alert_closes():
@@ -196,5 +196,5 @@ def test_operating_date_rolls_after_close():
 
 def test_policy_loads_all_starter_rules():
     ids = [r["id"] for r in load_policy().rules]
-    assert ids == ["extreme_immediate_alert", "high_wind", "wind_advisory", "flood", "convective"]
+    assert ids == ["extreme_immediate_alert", "high_wind", "wind_advisory", "flood", "convective", "winter_storm", "ice_storm", "winter_advisory"]
     assert all(r["verified"] and r["citation"]["url"] and r["justification"] for r in load_policy().rules)

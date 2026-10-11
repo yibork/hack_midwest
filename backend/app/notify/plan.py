@@ -269,6 +269,9 @@ def _role(person: schemas.Employee, message_type: str, subject: str, body: str, 
 def load_inputs(db: Session, facility: models.Facility, day: date):
     """People linked to the facility (all assignments), their shifts for day-1..day, functions."""
     assignments = [schemas.Assignment.model_validate(a) for a in db.scalars(select(models.Assignment))]
+    relocated_ids = set(db.scalars(select(models.Facility.id).where(models.Facility.demo_origin_id.is_not(None))))
+    assignments = [a for a in assignments if (a.facility_id not in relocated_ids or a.facility_id == facility.id)
+                   and (not facility.demo_origin_id or a.facility_id != facility.demo_origin_id)]
     ids = {a.employee_id for a in assignments if a.facility_id == facility.id}
     people = [schemas.Employee.model_validate(e) for e in
               db.scalars(select(models.Employee).where(models.Employee.id.in_(ids)).order_by(models.Employee.name))]

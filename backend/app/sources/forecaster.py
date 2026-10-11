@@ -16,10 +16,12 @@ from .nws import BASE, parse_dt
 PRODUCT_TYPES = {"AFD": "Area Forecast Discussion", "HWO": "Hazardous Weather Outlook"}
 
 
-def collect(day):
+def collect(day, office="EAX"):
+    if not re.fullmatch(r"[A-Z]{3}", office):
+        raise ValueError("Invalid NWS forecast office")
     evidence = []
     for code, title in PRODUCT_TYPES.items():
-        listing = f"{BASE}/products/types/{code}/locations/EAX"
+        listing = f"{BASE}/products/types/{code}/locations/{office}"
         now, url = utcnow(), listing
         try:
             headers = {"User-Agent": settings.nws_user_agent, "Accept": "application/ld+json"}
@@ -34,16 +36,16 @@ def collect(day):
             response = httpx.get(url, headers=headers, timeout=20, follow_redirects=False)
             response.raise_for_status()
             data = response.json()
-            if data.get("productCode") != code or data.get("issuingOffice") not in {"EAX", "KEAX"} or not data.get("productText"):
+            if data.get("productCode") != code or data.get("issuingOffice") not in {office, "K" + office} or not data.get("productText"):
                 raise ValueError("Wrong or empty forecaster product")
             issued = parse_dt(data.get("issuanceTime"))
             status = "ok" if issued and timedelta(0) <= now - issued <= timedelta(hours=48) else "stale"
             ev = schemas.Evidence(id=uuid.uuid4().hex, source="nws", kind=f"forecaster_{code.lower()}",
-                value={"product_type": code, "title": title, "office": "EAX", "authority": "official_federal",
+                value={"product_type": code, "title": title, "office": office, "authority": "official_federal",
                        "text": data["productText"], "operating_date": day.isoformat()}, source_time=issued,
                 retrieved_at=now, valid_until=now+timedelta(minutes=15), url=url,
                 snapshot_hash=save_snapshot(response.content), status=status,
-                relevance_note=f"EAX {title}; context only for target day {day}. Text never selects a posture.")
+                relevance_note=f"{office} {title}; context only for target day {day}. Text never selects a posture.")
         except Exception as exc:
             ev = schemas.Evidence(id=uuid.uuid4().hex, source="nws", kind=f"forecaster_{code.lower()}",
                 value={"error": f"{title} unavailable ({type(exc).__name__})", "authority": "official_federal"},

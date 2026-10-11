@@ -29,6 +29,15 @@ def home_zones(people: list[schemas.Employee]) -> list[str]:
 
 def collect(facility_id: str, evaluation_id: str | None, people: list[schemas.Employee], *, save_raw=False) -> schemas.Evidence:
     """Fetch alerts once per unique zone and store a single Evidence row for the evaluation."""
+    from ..models import Facility
+    with SessionLocal() as s:
+        facility = s.get(Facility, facility_id)
+        if facility and facility.demo_origin_id:
+            from ..demo_location import unknown
+            ev = unknown(KIND)
+            store_evidence(s, [ev], facility_id, evaluation_id)
+            s.commit()
+            return ev
     zones = home_zones(people)
     with ThreadPoolExecutor(max_workers=6) as pool:
         results = dict(zip(zones, pool.map(nws.get_active_alerts_for_zone, zones)))

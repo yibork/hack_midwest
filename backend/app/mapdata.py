@@ -46,7 +46,7 @@ def map_for(db: Session, rec: models.Recommendation) -> dict:
     facility = db.get(models.Facility, rec.facility_id)
     fac = schemas.Facility.model_validate(facility)
     people = load_inputs(db, facility, rec.operating_date)[0] if not fac.temporary else []
-    homes = [(p.home_lat, p.home_lon) for p in people if p.home_lat and p.home_lon and p.commute_routes]
+    homes = [] if fac.demo_origin_id else [(p.home_lat, p.home_lon) for p in people if p.home_lat and p.home_lon and p.commute_routes]
     facts, unmapped = [], []
     for e in db.scalars(select(models.Evidence).where(models.Evidence.id.in_(rec.evidence_ids),
                                                       models.Evidence.kind == "local_fact")):
@@ -72,7 +72,7 @@ def map_for(db: Session, rec: models.Recommendation) -> dict:
         "segments": [{"route": s.route, "name": s.name, "buffer_km": s.buffer_km, "ramps": s.ramps,
                       "coordinates": [[lon, lat] for lat, lon in s.points]} for s in fac.access_routes if s.points],
         "corridor_cells": corridor_cells((fac.lat, fac.lon), homes),
-        "corridor_rule": f"Cells crossed by at least {K_MIN} commute corridors (home to facility, "
+        "corridor_rule": "Home-zone exposure and commute geometry are not available for this location." if fac.demo_origin_id else f"Cells crossed by at least {K_MIN} commute corridors (home to facility, "
                          f"{CORRIDOR_BUFFER_KM:g} km wide); cells within {HOME_CLEARANCE_KM:g} km of any home are hidden.",
         "facts": facts,
         "unmapped": unmapped,

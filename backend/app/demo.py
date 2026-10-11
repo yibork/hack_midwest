@@ -41,7 +41,7 @@ def state(db):
 
 def active_recommendation(db, facility_id):
     current = db.get(models.DemoState, FACILITY_ID) if settings.demo_mode else None
-    if not current or current.active_facility_id != facility_id or not current.recommendation_id:
+    if not current or facility_id not in {FACILITY_ID, current.active_facility_id} or not current.recommendation_id:
         return None
     rec = db.get(models.Recommendation, current.recommendation_id)
     while rec and not rec.archived_at:
@@ -65,7 +65,8 @@ def get_state(db: Session = Depends(get_db)):
 
 @router.get("/recordings", dependencies=[Depends(manager_only), Depends(enabled)])
 def recordings(db: Session = Depends(get_db)):
-    rows = db.scalars(select(models.Recommendation).where(models.Recommendation.facility_id == FACILITY_ID)
+    facility_ids = [FACILITY_ID] + list(db.scalars(select(models.Facility.id).where(models.Facility.demo_origin_id == FACILITY_ID)))
+    rows = db.scalars(select(models.Recommendation).where(models.Recommendation.facility_id.in_(facility_ids))
                       .order_by(models.Recommendation.evaluated_at.desc()).limit(100)).all()
     return [{"id": r.id, "captured_at": r.evaluated_at, "operating_date": r.operating_date,
              "posture": r.posture, "label": f"{r.scenario_kind or 'live'} · {r.evaluated_at:%a %b %d, %H:%M UTC}"}
@@ -75,6 +76,18 @@ def recordings(db: Session = Depends(get_db)):
 class ScenarioIn(BaseModel):
     mode: str
     recording_id: str | None = None
+    alert_id: str | None = None
+
+
+@router.get("/national-alerts", dependencies=[Depends(manager_only), Depends(enabled)])
+def national_alerts(db: Session = Depends(get_db)):
+    from .sources import nws
+    alerts, evidence = nws.get_active_alerts_national(limit=5, demo_only=True)
+    services.store_evidence(db, evidence, FACILITY_ID, None)
+    db.commit()
+    return {"alerts": alerts, "retrieved_at": evidence[0].retrieved_at,
+            "status": evidence[0].status, "snapshot_hash": evidence[0].snapshot_hash,
+            "note": "Supported hazards, Moderate or higher, ongoing or starting within 24 hours; severity, urgency, certainty order."}
 
 
 def synthetic(db, facility):
@@ -168,21 +181,35 @@ def set_scenario(body: ScenarioIn, db: Session = Depends(get_db)):
         if body.mode == "simulated_winter":
             rec = synthetic(db, facility)
         elif body.mode == "replay":
+            saved = db.get(models.Recommendation, body.recording_id) if body.recording_id else None
+            if saved:
+                saved_facility = db.get(models.Facility, saved.facility_id)
+                if saved_facility and saved_facility.demo_origin_id == FACILITY_ID:
+                    facility = saved_facility
             rec = replay(db, facility, body.recording_id)
         elif body.mode == "live_national":
             from .sources import nws
-            alerts, evidence = nws.get_active_alerts_national(limit=20)
-            services.store_evidence(db, evidence, None)
-            db.commit()
-            found = next((a for a in alerts if a.lat is not None and a.lon is not None), None)
+            from .demo_location import relocate
+            selected_id = body.alert_id
+            if not selected_id:
+                saved = db.get(models.Recommendation, state(db).recommendation_id) if state(db).recommendation_id else None
+                selected_id = (saved.scenario_context or {}).get("alert_id") if saved else None
+            if not selected_id:
+                raise HTTPException(422, "Scan real alerts and choose a location first")
+            alerts, evidence = nws.get_active_alerts_national(limit=5, demo_only=True)
+            found = next((a for a in alerts if a.id == selected_id and a.lat is not None and a.lon is not None), None)
             if found is None:
-                raise HTTPException(502, "No located active US alert available; current scenario unchanged")
-            rec = pipeline.evaluate_point(db, found.lat, found.lon, f"DEMO temporary facility: {found.event}")
+                raise HTTPException(409, "Selected alert is no longer in the eligible top five or has no land location; refresh the scan")
+            try:
+                rec = relocate(db, facility, found, evidence)
+            except ValueError as exc:
+                db.rollback()
+                raise HTTPException(502, str(exc)) from exc
         else:
             rec = pipeline.evaluate_facility(db, facility, demo_workday=body.mode == "live_today")
         current = state(db)
         current.mode, current.recommendation_id, current.active_facility_id = body.mode, rec.id, rec.facility_id
-        current.label = LABELS.get(body.mode, "REPLAY: saved conditions, not current weather")
+        current.label = rec.scenario_context["label"] if body.mode == "live_national" else LABELS.get(body.mode, "REPLAY: saved conditions, not current weather")
         current.captured_at = datetime.fromisoformat(rec.scenario_context["captured_at"]) if body.mode == "replay" else None
         record.append(db, "demo.scenario_changed", {"mode": body.mode, "label": current.label,
                       "recommendation_id": rec.id}, facility_id=FACILITY_ID)
@@ -197,10 +224,11 @@ def reset(db: Session = Depends(get_db)):
     # Join running investigations and dispatches before archiving pending state.
     with _run_lock, _send_lock, lock:
         at = utcnow()
-        recs = list(db.scalars(select(models.Recommendation).where(models.Recommendation.facility_id == FACILITY_ID)))
+        facility_ids = [FACILITY_ID] + list(db.scalars(select(models.Facility.id).where(models.Facility.demo_origin_id == FACILITY_ID)))
+        recs = list(db.scalars(select(models.Recommendation).where(models.Recommendation.facility_id.in_(facility_ids))))
         rec_ids = [r.id for r in recs]
         decisions = list(db.scalars(select(models.Decision).where(models.Decision.recommendation_id.in_(rec_ids))))
-        notices = list(db.scalars(select(models.Notice).where(models.Notice.facility_id == FACILITY_ID)))
+        notices = list(db.scalars(select(models.Notice).where(models.Notice.facility_id.in_(facility_ids))))
         investigations = list(db.scalars(select(models.Investigation).where(models.Investigation.recommendation_id.in_(rec_ids))))
         groups = {"recommendations": recs, "decisions": decisions, "notices": notices,
                   "notifications": list(db.scalars(select(models.Notification).where(models.Notification.notice_id.in_([n.id for n in notices])))),
@@ -212,7 +240,7 @@ def reset(db: Session = Depends(get_db)):
             counts[name] = len(active)
             for row in active:
                 row.archived_at = at
-        jobs = db.scalars(select(models.ScheduledJob).where(models.ScheduledJob.facility_id == FACILITY_ID,
+        jobs = db.scalars(select(models.ScheduledJob).where(models.ScheduledJob.facility_id.in_(facility_ids),
                                                            models.ScheduledJob.status == "pending")).all()
         for job in jobs:
             job.status, job.ran_at, job.result = "skipped", at, {"reason": "demo_reset"}
