@@ -12,17 +12,17 @@ The answer is scattered across weather alerts, road reports and employee schedul
 
 Built for the **USDA Closure Call**, **AWS Best Use of Strands Agents SDK**, and **Akamai Cloud AI** challenges at [Hack Midwest](https://hackmidwest.com/).
 
-## Start here: the judge’s walkthrough
+## Start here: 
 
-Use the **facility manager** demo role. This is a prototype with synthetic employee records and a role switcher, not production identity authentication.
+Use the **facility manager** demo role. This is a prototype with synthetic employee records and a role switcher.
 
 1. **Show real NWS data.** Open [National scan](https://closurecall.duckdns.org/national), refresh, and select a located active alert. Inspect its source, timestamps, severity, certainty and urgency. This evaluates a temporary facility; it does not have an employee roster.
 2. **Show the complete facility workflow.** Open [Facility](https://closurecall.duckdns.org/facility), choose the seeded Kansas City demo facility and evaluate a target operating day. Show the graded recommendation, threshold observations and margins, confidence, missing data and what would change the result. Wait for preliminary local checks to finish before deciding.
-3. **Show agents doing work.** Follow the agent activity panel and ask an investigation question such as “Is the access road still closed?” Inspect the supporting evidence and any revised recommendation. Clearly identify a template fallback if inference is unavailable.
-4. **Approve and notify.** Open Decide, approve or override with a reason, then inspect who is included or excluded, their instructions and channel routing. Send to configured demo recipients and show an actual receipt and acknowledgment. Unconfigured channels are not successful deliveries.
+3. **Show agents doing work.** Follow the agent activity panel and ask an investigation question such as “Is the access road still closed?” Inspect the supporting evidence and any revised recommendation. 
+4. **Approve and notify.** Open [Decide] (https://closurecall.duckdns.org/decide), approve or override with a reason, then inspect who is included or excluded, their instructions and channel routing. Send to configured demo recipients and show an actual receipt and acknowledgment. Unconfigured channels are not successful deliveries.
 5. **Show accountability.** Open [Record](https://closurecall.duckdns.org/record), reconstruct the decision, inspect a saved evidence copy, verify its hash and open the printable decision memo. Follow a threshold link to its citation and facility-policy justification.
 
-**Live evidence and scenario playback are separate.** Use the national scan for the required real-alert demonstration even if Kansas City has calm weather. A labeled simulated winter scenario or saved replay can demonstrate the roster workflow, but does not replace the live NWS requirement.
+<!-- **Live evidence and scenario playback are separate.** Use the national scan for the required real-alert demonstration even if Kansas City has calm weather. A labeled simulated winter scenario or saved replay can demonstrate the roster workflow, but does not replace the live NWS requirement. -->
 
 ## How it works
 
@@ -38,7 +38,7 @@ Use the **facility manager** demo role. This is a prototype with synthetic emplo
 
 An onsite employee may need a new reporting time. Someone on leave may need no routine alert. Essential staff receive instructions specific to their responsibilities. Assignments, details, telework status, accessibility needs and commute timing inform the notification plan.
 
-The main demonstration uses a **synthetic USDA Kansas City field office**, focusing on wind/severe-weather and flooding/access disruption. A national scan demonstrates live evidence at other locations; it is not a claim that every facility or hazard is fully modeled.
+<!-- The main demonstration uses a **synthetic USDA Kansas City field office**, focusing on wind/severe-weather and flooding/access disruption. A national scan demonstrates live evidence at other locations; it is not a claim that every facility or hazard is fully modeled. -->
 
 ## USDA: the five deliverables
 
