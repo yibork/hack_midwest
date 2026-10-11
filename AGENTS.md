@@ -126,14 +126,16 @@ beat the shell environment on purpose.
   docker compose -f compose.prod.yml logs --tail 100 app
   ```
   For a lasting rollback, `git revert` on main and push, or set `AUTO_DEPLOY=false` first.
-- The server `.env` lives at `~/closure-call/.env` (chmod 600), copied by scp; it is not in the
-  image.
+- The server env file lives **outside the repo** at `/home/deploy/closure-call.env` (chmod 600,
+  override with `ENV_FILE`), so `git reset --hard` can never overwrite or delete it. deploy.sh fails
+  fast if it is missing and passes it to compose as `env_file` and `--env-file` (for `SITE_DOMAIN`).
+  A copy is at `/home/deploy/closure-call.env.backup`. It is not in the image.
 
 ## Guardrails (non-negotiable)
 
 1. **Secrets:** never print, log, echo or commit `.env` contents or keys (`hk_...`, Resend,
    deploy SSH key). Use `config.redact()` on any text that might contain one. Show env var
-   names only. (Note: `.env` is currently tracked in git; see Known issues.)
+   names only. `.env` and `.env.*` are git-ignored; only `.env.example` (placeholders) is tracked.
 2. **Tests never call the live Akamai inference endpoint.** `tests/conftest.py` fails any test
    that resolves `*.akamai-workshops.com`; mock the model. Keep it that way.
 3. **Quota:** the team shares 60 requests/min across all endpoints. The process limiter is 45/min;
@@ -218,6 +220,6 @@ Pending, in priority order:
 
 ## Known issues
 
-- **`.env` is tracked in git** (added before `.gitignore` covered it) and contains the team
-  inference key. It should be removed from the index (`git rm --cached .env`), added to
-  `.gitignore`, and the key rotated. Ask the user before doing this; never print the file.
+- `.env` was tracked in git from `0d43b30` until it was untracked (history not rewritten). The
+  team inference key it held (`API_KEY`) must be treated as exposed and rotated; after rotation,
+  update `/home/deploy/closure-call.env` on the VM and the local `.env`.

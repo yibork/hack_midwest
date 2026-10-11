@@ -1,10 +1,14 @@
 # Production: the app (FastAPI serving the built frontend) behind Caddy. No database container:
-# DATABASE_URL in .env points at Akamai Managed PostgreSQL; if it's empty the app uses SQLite in
+# DATABASE_URL in the env file points at Akamai Managed PostgreSQL; if it's empty the app uses SQLite in
 # the `dbdata` volume. Deploy with scripts/deploy.sh; see README "Deployment".
+#
+# The env file lives OUTSIDE the repo (default /home/deploy/closure-call.env, override with ENV_FILE)
+# so `git reset --hard` in deploy.sh can never overwrite or delete it. deploy.sh also passes it as
+# --env-file so ${SITE_DOMAIN} below is interpolated from it.
 services:
   app:
     build: .
-    env_file: .env
+    env_file: ${ENV_FILE:-/home/deploy/closure-call.env}
     environment:
       CLOSURECALL_DOTENV: "0"  # values come from env_file; there is no .env inside the image
       # Used only when DATABASE_URL is empty. v2: the people/notice schema; the previous file is
@@ -30,7 +34,7 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      # Only this one value is passed to Caddy (from .env via compose interpolation).
+      # Only this one value is passed to Caddy (from the env file via compose --env-file interpolation).
       # Unset or empty: plain HTTP on :80.
       SITE_DOMAIN: ${SITE_DOMAIN:-:80}
     volumes:

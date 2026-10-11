@@ -3,15 +3,21 @@
 #
 #   ~/closure-call/scripts/deploy.sh
 #
+# Secrets come from $ENV_FILE (default /home/deploy/closure-call.env, chmod 600), outside the repo,
+# so the `git reset --hard` below can never touch it.
+#
 # Builds and restarts the stack, then waits for /api/health. If the new version doesn't come up
 # healthy within 120 s it goes back to the previous commit and exits 1.
 set -euo pipefail
 
 # Everything is inside main() so bash parses the whole file before `git reset` can rewrite it.
 main() {
-  local app_dir="$HOME/closure-call" compose="docker compose -f compose.prod.yml" log="$HOME/deploys.log"
+  local app_dir="$HOME/closure-call" log="$HOME/deploys.log"
+  export ENV_FILE="${ENV_FILE:-/home/deploy/closure-call.env}"
+  [[ -f "$ENV_FILE" && -r "$ENV_FILE" ]] || {
+    echo "missing $ENV_FILE (copy it with scp, chmod 600); nothing deployed" >&2; exit 1; }
+  local compose="docker compose -f compose.prod.yml --env-file $ENV_FILE"
   cd "$app_dir"
-  [[ -f .env ]] || { echo "missing $app_dir/.env (copy it with scp, chmod 600)" >&2; exit 1; }
 
   local previous
   previous=$(git rev-parse HEAD)

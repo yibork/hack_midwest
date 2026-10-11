@@ -146,4 +146,5 @@ EOF
 fi
 
 step "done"
-[[ -f "$APP_DIR/.env" ]] || echo "next: copy .env to $APP_DIR/.env (chmod 600), then run scripts/deploy.sh as $DEPLOY_USER"
+ENV_FILE="/home/$DEPLOY_USER/closure-call.env"
+[[ -f "$ENV_FILE" ]] || echo "next: copy the env file to $ENV_FILE (outside the repo, chmod 600), then run scripts/deploy.sh as $DEPLOY_USER"
