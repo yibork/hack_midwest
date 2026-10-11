@@ -89,6 +89,8 @@ def recommendation_detail(db: Session, rec: models.Recommendation) -> schemas.Re
 
 def change_rule_id(line: str) -> str:
     """Resolve saved explanation strings to policy anchors, including old records."""
+    if "AQI" in line:
+        return "air_quality_closure" if "/ 201" in line else "air_quality_telework"
     if "access_route_closed" in line or "Reopening" in line:
         return "access_route_closed"
     if "site_hazard_reported" in line:

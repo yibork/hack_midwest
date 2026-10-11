@@ -57,6 +57,7 @@ class Settings:
     database_url: str = field(default_factory=_database_url)
     nws_user_agent: str = field(default_factory=lambda: _pick(
         "NWS_USER_AGENT", default="ClosureCall/0.1 (hackathon demo; contact@example.com)"))
+    airnow_api_key: str = field(default_factory=lambda: _pick("AIRNOW_API_KEY"), repr=False)
 
     # Akamai workshop inference (OpenAI-compatible chat completions only).
     openai_base_url: str = field(default_factory=lambda: _pick("OPENAI_BASE_URL", "BASE_URL"))
@@ -136,7 +137,8 @@ def redact(text: str) -> str:
     """Remove secrets from text that may be logged, stored or returned."""
     if not text:
         return text
-    for secret in (settings.openai_api_key, settings.obj_secret_key, settings.resend_api_key):
+    for secret in (settings.openai_api_key, settings.obj_secret_key, settings.resend_api_key, settings.airnow_api_key):
         if secret and len(secret) >= 6:
             text = text.replace(secret, "[REDACTED]")
+    text = re.sub(r"(?i)([?&](?:api_key|apikey)=)[^&\s\"<>]+", r"\1[REDACTED]", text)
     return _KEY_SHAPE.sub("hk_[REDACTED]", text)

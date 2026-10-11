@@ -200,6 +200,8 @@ def run_check(action, state):
             else:
                 services.store_evidence_now(nwps.collect(windows), fac.id, eid)
         elif action == "recheck_now":
+            from .sources import airnow
+            services.store_evidence_now(airnow.collect(fac, rec.operating_date), fac.id, eid)
             weather_agent.fetch_alerts(fac, eid)
             weather_agent.fetch_forecast(fac, eid, operating_date=rec.operating_date)
             if people:
@@ -465,14 +467,15 @@ def refresh_expired(evidence, state):
     def expired(e):
         if e.scenario_kind in {"simulated", "replay"}:
             return False  # replay/simulation may never fetch live evidence
-        if e.source not in {"nws", "nwps", "local"}:
+        if e.source not in {"nws", "nwps", "local", "airnow"}:
             return False
         if e.status == "stale" or (e.valid_until and e.valid_until <= now):
             return True
         source_id = e.value.get("source_id") if isinstance(e.value, dict) else None
         if source_id in sources:
             return now - e.retrieved_at > timedelta(minutes=sources[source_id].refresh_minutes)
-        freshness = {"active_alerts": 15, "home_zone_alerts": 15, "hourly_forecast": 180,
+        freshness = {"air_quality_current": 120, "air_quality_forecast": 120,
+                     "active_alerts": 15, "home_zone_alerts": 15, "hourly_forecast": 180,
                      "wind_forecast": 180, "point": 1440, "river_categories": 15, "river_forecast": 15}
         return e.kind in freshness and now - e.retrieved_at > timedelta(minutes=freshness[e.kind])
     old = [e for e in saved if expired(e)]
@@ -480,6 +483,12 @@ def refresh_expired(evidence, state):
         return evidence
     event(state, "investigation.refresh_started", kinds=sorted({e.kind for e in old}))
     actions = []
+    if any(e.source == "airnow" for e in old):
+        from .sources import airnow
+        with SessionLocal() as db:
+            rec = db.get(models.Recommendation, state["recommendation_id"])
+            fac, _, _ = context(db, rec)
+        services.store_evidence_now(airnow.collect(fac, rec.operating_date), fac.id, state["evaluation_id"])
     if any(e.source == "nws" for e in old):
         nws.clear_cache()
         actions.append("recheck_now")

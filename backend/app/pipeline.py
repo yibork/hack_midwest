@@ -83,6 +83,8 @@ def evaluate_facility(db: Session, facility: models.Facility, evaluation_id: str
     except AgentUnavailable as e:
         record_unavailable(weather_agent.NAME, str(e), "NWS tools called directly", state)
     weather_agent.ensure_required_evidence(fac, eid, agent_ran, operating_date=day)
+    from .sources import airnow
+    store_evidence_now(airnow.collect(fac, day), fac.id, eid)
 
     # 1b. People exposure: alerts for employees' home zones, one request per unique zone.
     if people:
@@ -214,6 +216,8 @@ def recheck(db: Session, facility: models.Facility, day: date, job_key: str | No
                                                     "operating_date": day.isoformat()},
                       facility_id=fac.id, evaluation_id=eid)
     weather_agent.ensure_required_evidence(fac, eid, agent_ran=False, operating_date=day)
+    from .sources import airnow
+    store_evidence_now(airnow.collect(fac, day), fac.id, eid)
     people = load_inputs(db, facility, day)[0]
     if people:
         exposure.collect(fac.id, eid, people)

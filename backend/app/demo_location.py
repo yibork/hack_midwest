@@ -80,10 +80,12 @@ def evaluate_live(db, facility, alert=None, scan_evidence=None):
             relevance_note="Real NWS alert selected from the live national scan; synthetic facility at its polygon/zone centroid."))
     evidence += [unknown("home_zone_alerts"), unknown("river_categories", "nwps")]
     evidence += [feed.to_evidence() for feed in local_feeds(facility)]
-    services.store_evidence(db, evidence, facility.id, eid)
     local = now.astimezone(ZoneInfo(facility.timezone))
     # Real clock and calendar windows. Pick onset's day (or today for ongoing alerts), never fake 04:00.
     day = max(local.date(), nws.parse_dt(alert.onset).astimezone(local.tzinfo).date()) if alert else local.date()
+    from .sources import airnow
+    evidence += airnow.collect(facility, day, now=now)
+    services.store_evidence(db, evidence, facility.id, eid)
     label = "Real NWS alert, live · Synthetic facility relocated to " + facility.address.removeprefix("Synthetic facility relocated to ") + " for demonstration"
     note = f"DEMO: {day} treated as a workday at the relocated site; real current clock and facility windows. Alerts outside those windows do not trigger a posture."
     result = evaluate(schemas.Facility.model_validate(facility), evidence, now, operating_date=day,

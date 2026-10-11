@@ -21,6 +21,7 @@ os.environ["LOCAL_SIGNALS"] = "0"  # local-signal tests call the modules directl
 os.environ["PUBLIC_BASE_URL"] = "http://closurecall.test"
 os.environ["NTFY_TOPIC"] = ""
 os.environ["RESEND_API_KEY"] = ""
+os.environ["AIRNOW_API_KEY"] = ""
 
 # ---------------------------------------------------------------- no live inference
 # The Akamai endpoint is a shared team quota: any test that tries to resolve it fails, even if the

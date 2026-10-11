@@ -135,6 +135,7 @@ class Exposure:
     alerts: tuple[ZoneAlert, ...] = ()
     closed_routes: frozenset[str] = frozenset()  # simulated (DEMO_MODE) closures by route name
     closed_for: tuple[tuple[str, tuple[str, ...]], ...] = ()  # (employee_id, routes)
+    air_quality_sensitive: bool = False  # AQI 101–150: policy flag, never medical information
 
     def closures_for(self, person: Employee) -> list[str]:
         mine = {r for eid, routes in self.closed_for if eid == person.id for r in routes}
@@ -427,6 +428,12 @@ def compute_impact(ctx: PostureContext, person: Employee, assignments: list[Assi
                     imp.message_type = "fyi"
                     imp.duty_instruction = ins.text("exposure_fyi", lang)
                     imp.instruction_key = "exposure_fyi"
+
+    if (exposure.air_quality_sensitive and shift and imp.scheduled == "onsite"
+            and shift.overlaps(ctx.open_dt, ctx.close_dt)
+            and "air_quality_sensitive" in person.accommodation_needs):
+        imp.add("ACCOMMODATION_ON_FILE", "accommodation on file", "accommodation on file")
+        imp.supervisor_suggestion = "Accommodation on file: offer unscheduled telework, subject to agency eligibility and emergency duties."
 
     # ---- 6. accommodations (private; never named outside the person's own message)
     if person.accommodation_needs and imp.message_type != "none":
