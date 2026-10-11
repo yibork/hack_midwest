@@ -94,6 +94,7 @@ def test_reset_archives_state_preserves_record_and_saved_copies(demo_db):
     assert {p.name: p.read_bytes() for p in record.settings.snapshot_dir.glob("*.json")} == snapshots
     assert demo_db.get(models.Decision, decision.id).archived_at
     assert demo_db.get(models.ScheduledJob, "demo-pending").status == "skipped"
+    assert record.verify(demo_db, rec.facility_id)["ok"]
     assert escalation.tick() == []
     with pytest.raises(HTTPException, match="reset"):
         investigations.submit_staff(demo_db, question, "Safe")

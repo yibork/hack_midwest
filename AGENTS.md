@@ -55,7 +55,8 @@ backend/app/
   calendar.py        operating calendar: Mon-Fri minus US federal holidays
   geo.py, mapdata.py location relevance; map payload with corridor privacy
   scheduler.py       re-evaluations 15:00 day before and 04:00 on the day
-  record.py          append-only RecordEvent writer (redacts secrets); replay via /api/record/at
+  record.py          append-only, redacted RecordEvents; per-facility hash chain and verification
+  snapshots.py, memo.py  inert saved-copy verification; printable privacy-safe decision memo
   db.py, models.py, schemas.py   SQLAlchemy models, additive auto-migration, Pydantic schemas
 backend/tests/       pytest suite; conftest.py blocks live inference
 frontend/src/        React 18 + Vite + Tailwind 4 + Leaflet; pages/ (Decide, Facility, Team,
@@ -156,6 +157,9 @@ beat the shell environment on purpose.
 ## Status
 
 Done (newest first):
+- Saved-copy provenance/hash verification, additive record hash chains and printable decision
+  memos. See docs/decision-record.md for canonical format and pre-migration integrity limits.
+- Demo scenarios/personas and non-destructive reset; USWDS-inspired frontend design pass.
 - Investigation panel: bound target-day tools, persistent model budget, audited revisions,
   deterministic explanations/rechecks, human-reported site evidence and demo replies
 - `5369b30` verified policy 1.0.0 citations, linked Thresholds page, retained migration script
@@ -171,19 +175,11 @@ Done (newest first):
 - `556ccf6` production deployment (Caddy + compose) and CI/CD to the Linode
 
 Pending, in priority order:
-1. **Evidence "Saved copy" links with hash verify.** `/api/snapshots/{sha256}` exists; add
-   saved-copy links on every evidence item and a verify step that recomputes the SHA-256 and
-   shows match/mismatch.
 4. **Map with location provenance.** Largely done in `74c242e`; check the remaining gaps (map on
    every relevant page, legend/provenance wording) rather than rebuilding.
 5. **River gauge KCDM7.** The investigation client now fetches official categories and
    target-window stageflow forecasts. Categories alone must never assert site inundation;
    additional facility-specific flood rules would need their own justified policy entries.
-6. **Decision memo + tamper-evident record.** Printable memo per decision; hash-chain RecordEvents
-   (each event stores the previous event's hash) with a verify endpoint. Additive columns only.
-7. **Demo reset + scenario switch.** Reset demo state without deleting recorded data (e.g. a new
-   demo epoch/scenario id) and switch between live / recorded / simulated scenarios, clearly
-   labelled.
 
 ## Known quirks and decisions
 

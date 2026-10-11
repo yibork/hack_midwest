@@ -59,6 +59,12 @@ def init_db() -> None:
 
     Base.metadata.create_all(engine)
     add_missing_columns()
+    from .record import backfill_chain
+    with engine.begin() as conn:
+        backfill_chain(conn)
+    from .snapshots import backfill
+    with SessionLocal() as db:
+        backfill(db)
 
 
 def add_missing_columns(eng=None) -> list[str]:

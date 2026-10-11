@@ -41,6 +41,12 @@ a manager approves.** Source research and the local-signal allowlist are in
 
 Everything above writes RecordEvents (append-only), so an evaluation can be replayed.
 
+RecordEvents now have per-facility hash chains with additive historical sealing, checkpointed
+concurrent appends, and `/api/record/verify`. Raw saved responses remain inert text; their wrapper
+adds provenance and byte verification. Printable decision memos retain the decision-time hash
+and exclude private employee needs. See [decision-record.md](decision-record.md) for canonical
+hash format, migration limitations, normalized historical copies and memo contents.
+
 ## Policy provenance
 
 Policy 1.0.0 uses structured, verified citations for EAX criteria, CAP, NOAA KCDM7 and OPM.

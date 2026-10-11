@@ -41,6 +41,8 @@ export interface Evidence {
   valid_until: string | null;
   url: string | null;
   snapshot_hash: string | null;
+  saved_copy_hash?: string | null;
+  saved_copy_kind?: string | null;
   relevance_note: string;
   ambiguity_flags: string[];
   status: EvidenceStatus;
@@ -455,6 +457,18 @@ export interface RecordEvent {
   evaluation_id: string | null;
   event_type: string;
   payload: Record<string, unknown>;
+  prev_hash?: string | null;
+  hash?: string | null;
+}
+
+export interface RecordVerification {
+  ok: boolean; event_count: number; head_hash: string; head_event_id: number | null;
+  first_broken_event_id: number | null; reason: string | null;
+}
+export interface SnapshotVerification {
+  sha256: string; actual_sha256: string; match: boolean; byte_count: number;
+  copies: {source_url: string | null; retrieved_at: string; source_time: string | null;
+    source: string; kind: string; copy_kind: string; scenario_kind: string | null}[];
 }
 
 export interface NationalAlert {
@@ -535,6 +549,13 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
 }
 
 export const api = {
+  recordVerify: (facilityId: string) => request<RecordVerification>(`/record/verify${qs({facility_id: facilityId})}`),
+  snapshotVerify: (digest: string) => request<SnapshotVerification>(`/snapshots/${digest}/verify`),
+  snapshotText: async (digest: string) => {
+    const response = await fetch(`/api/snapshots/${digest}`, {headers: {...viewerHeaders, Accept: 'text/plain'}, signal: AbortSignal.timeout(15000)});
+    if (!response.ok) throw new Error(`Saved copy unavailable (${response.status})`);
+    return response.text();
+  },
   demoState: () => request<{enabled: boolean; mode: string; label: string; recommendation_id: string | null; facility_id: string; captured_at: string | null}>("/demo/state"),
   demoRecordings: () => request<{id: string; captured_at: string; label: string}[]>("/demo/recordings"),
   demoScenario: (mode: string, recording_id?: string) => post<RecommendationDetail>("/demo/scenario", {mode, recording_id}),

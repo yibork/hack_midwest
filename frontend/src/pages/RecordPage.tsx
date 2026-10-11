@@ -1,4 +1,6 @@
 import { useState } from "react";
+import SavedCopyLinks from "../components/SavedCopyLinks";
+import RecordVerification from "../components/RecordVerification";
 import { api, type RecordAt, type RecommendationDetail } from "../api";
 import { Button, Card, ConfidenceBadge, ErrorBox, Loading, PolicyDetails, PostureBadge, StatusBadge, fmtDateTime, humanText, ruleLabel, useAsync } from "../components/ui";
 
@@ -57,6 +59,7 @@ export default function RecordPage() {
         </select>
       </div>
 
+      {fid && <RecordVerification facilityId={fid} revision={events.data} />}
       <Card title="What was known at a moment">
         <div className="flex flex-wrap items-end gap-3">
           <label className="block">
@@ -91,6 +94,7 @@ export default function RecordPage() {
                   {"status" in e.payload && <span className="ml-2"><StatusBadge status={e.payload.status as "ok"} /></span>}
                 </summary>
                 <details className="mb-2"><summary>Technical details</summary><pre className="overflow-x-auto rounded bg-slate-50 p-3 text-xs">{JSON.stringify(e.payload, null, 2)}</pre></details>
+                {e.event_type === 'decision.recorded' && typeof e.payload.decision_id === 'string' && <p className="mb-2"><a className="underline" href={`/decisions/${e.payload.decision_id}/memo`} target="_blank" rel="noreferrer">Decision memo · Print / save PDF</a></p>}
               </details>
             </li>
           ))}
@@ -114,15 +118,15 @@ function Snapshot({ title, rec, notificationCount }: { title: string; rec: Recom
           </div>
           <div>Evaluated {fmtDateTime(rec.evaluated_at)} · <PolicyDetails version={rec.policy_version} /></div>
           <div>Triggers: {rec.triggers.length ? rec.triggers.map((t) => ruleLabel(t.rule_id)).join(", ") : "none"}</div>
-          <div className="flex flex-wrap gap-1">
-            Evidence:
-            {rec.evidence.map((e) => <span key={e.id} className="inline-flex items-center gap-1">{humanText(e.kind)}<StatusBadge status={e.status} /></span>)}
-          </div>
+          <details><summary>Saved evidence ({rec.evidence.length})</summary><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr><th>Evidence</th><th>Retrieved</th><th>Copies</th></tr></thead><tbody>
+            {rec.evidence.map(e => <tr key={e.id}><td>{e.scenario_kind === 'simulated' ? 'SIMULATED · ' : e.scenario_kind === 'replay' ? 'REPLAY · ' : ''}{humanText(e.kind)} <StatusBadge status={e.status} /></td><td>{fmtDateTime(e.retrieved_at)}</td><td><SavedCopyLinks evidence={e} /></td></tr>)}
+          </tbody></table></div></details>
           <div>
             Decision:{" "}
             {rec.decision ? <>{rec.decision.action} by {rec.decision.manager_name} → <PostureBadge posture={rec.decision.final_posture} size="sm" /></> : "none yet"}
           </div>
           {notificationCount !== undefined && <div>Notifications sent by then: {notificationCount}</div>}
+          {rec.decision && <a className="block underline" href={`/decisions/${rec.decision.id}/memo`} target="_blank" rel="noreferrer">Decision memo · Print / save PDF</a>}
         </div>
       )}
     </div>

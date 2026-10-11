@@ -239,20 +239,28 @@ def recommendation_map(rec_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/snapshots/{digest}", include_in_schema=False)
-def snapshot(digest: str):
+def snapshot(digest: str, request: Request):
     """The saved copy of a source response, as plain text (never rendered as HTML)."""
-    import re as _re
-
-    from fastapi.responses import PlainTextResponse
-
-    from .config import settings
-    if not _re.fullmatch(r"[0-9a-f]{64}", digest):
-        raise HTTPException(404, "not found")
-    path = settings.snapshot_dir / f"{digest}.json"
-    if not path.exists():
-        raise HTTPException(404, "snapshot not found")
-    return PlainTextResponse(path.read_bytes().decode("utf-8", "replace"),
+    from fastapi.responses import Response, RedirectResponse
+    from .snapshots import path_for
+    path = path_for(digest)
+    # The app-owned wrapper escapes source text. Raw bytes remain plain text for
+    # API clients; no source response is ever rendered as HTML.
+    if "text/html" in request.headers.get("accept", ""):
+        return RedirectResponse(f"/saved-copy/{digest}", status_code=307)
+    return Response(path.read_bytes(), media_type="text/plain; charset=utf-8",
                              headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox"})
+
+
+@router.get("/snapshots/{digest}/verify")
+def snapshot_verify(digest: str, db: Session = Depends(get_db)):
+    from .snapshots import metadata
+    return metadata(db, digest)
+
+
+@router.get("/record/verify")
+def verify_record(facility_id: str | None = None, db: Session = Depends(get_db)):
+    return record.verify(db, facility_id)
 
 
 @router.post("/recommendations/{rec_id}/decision", response_model=schemas.Decision)

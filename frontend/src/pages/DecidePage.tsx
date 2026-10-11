@@ -63,6 +63,7 @@ function DecideFlow({ rec: initial }: { rec: RecommendationDetail }) {
               <PostureBadge posture={decision.final_posture} />
             </div>
             {decision.reason && <p className="mt-2 italic">“{decision.reason}”</p>}
+            <p className="mt-3"><a className="underline" href={`/decisions/${decision.id}/memo`} target="_blank" rel="noreferrer">Decision memo · Print / save PDF</a></p>
             {(decision.delay_hours || decision.dismissal_time) && (
               <p className="mt-1 text-sm text-slate-600">
                 {decision.delay_hours ? `Delay: ${decision.delay_hours} h after each shift start` : ""}

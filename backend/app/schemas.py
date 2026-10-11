@@ -125,6 +125,8 @@ class Evidence(ORMModel):
     valid_until: dt.datetime | None = None
     url: str | None = None
     snapshot_hash: str | None = None
+    saved_copy_hash: str | None = None
+    saved_copy_kind: str | None = None
     relevance_note: str = ""
     ambiguity_flags: list[str] = []
     status: EvidenceStatus
@@ -210,6 +212,8 @@ class Decision(ORMModel):
     decided_at: dt.datetime
     delay_hours: int | None = None
     dismissal_time: str | None = None
+    record_hash: str | None = None
+    record_event_id: int | None = None
 
 
 class RecommendationDetail(Recommendation):
@@ -429,6 +433,8 @@ class RecordEvent(ORMModel):
     evaluation_id: str | None = None
     event_type: str
     payload: dict
+    prev_hash: str | None = None
+    hash: str | None = None
 
 
 class NationalAlert(BaseModel):

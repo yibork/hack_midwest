@@ -13,6 +13,7 @@ import TeamPage from "./pages/TeamPage";
 import ThresholdsPage from "./pages/ThresholdsPage";
 import { ScenarioBanner } from "./components/DemoScenario";
 import AcknowledgePage from "./pages/AcknowledgePage";
+import SavedCopyPage from "./pages/SavedCopyPage";
 
 const NAV: Record<ViewerRole, { to: string; label: string; hint: string }[]> = {
   facility_manager: [
@@ -99,6 +100,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/acknowledge/:id" element={<AcknowledgePage />} />
+      <Route path="/saved-copy/:digest" element={<SavedCopyPage />} />
       <Route path="*" element={<RoleProvider><Shell /></RoleProvider>} />
     </Routes>
   );

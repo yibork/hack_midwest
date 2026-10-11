@@ -1,4 +1,8 @@
 # Closure Call
+
+Saved-copy verification and printable decision memos are documented in
+[Decision record](docs/decision-record.md); the visual before/after report is in
+[Design pass](docs/design-pass.md).
 ### Make the call. Reach the right people. Keep the reasons.
 
 🌐 **[Try the live app](https://closurecall.duckdns.org/team)**

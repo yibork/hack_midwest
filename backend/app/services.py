@@ -23,10 +23,15 @@ def store_evidence(db: Session, evidence: list[schemas.Evidence], facility_id: s
             if same is not None:
                 ev.id = same.id
                 continue
-        db.add(models.Evidence(**ev.model_dump()))
+        from .snapshots import ensure_copy
+        row = models.Evidence(**ev.model_dump())
+        ensure_copy(row)
+        ev.saved_copy_hash, ev.saved_copy_kind = row.saved_copy_hash, row.saved_copy_kind
+        db.add(row)
         record.append(db, "evidence.fetched", {
             "evidence_id": ev.id, "source": ev.source, "kind": ev.kind, "status": ev.status,
             "url": ev.url, "snapshot_hash": ev.snapshot_hash, "relevance_note": ev.relevance_note,
+            "saved_copy_hash": ev.saved_copy_hash, "saved_copy_kind": ev.saved_copy_kind,
             "scenario_kind": ev.scenario_kind,
         }, facility_id=facility_id, timestamp=ev.retrieved_at, evaluation_id=evaluation_id)
 
@@ -114,7 +119,7 @@ def record_decision(db: Session, rec: models.Recommendation, body: schemas.Decis
         decided_at=utcnow(), delay_hours=body.delay_hours, dismissal_time=body.dismissal_time,
     )
     db.add(d)
-    record.append(db, "decision.recorded", {
+    event = record.append(db, "decision.recorded", {
         "decision_id": d.id, "recommendation_id": rec.id, "manager_name": d.manager_name,
         "action": d.action, "recommended_posture": rec.posture, "final_posture": d.final_posture,
         "reason": d.reason, "delay_hours": d.delay_hours, "dismissal_time": d.dismissal_time,
@@ -122,6 +127,8 @@ def record_decision(db: Session, rec: models.Recommendation, body: schemas.Decis
         # Hours from the decision to the start of the target day's commute window.
         "lead_time_hours": lead_time_hours(db, rec, d.decided_at),
     }, facility_id=rec.facility_id, evaluation_id=rec.evaluation_id)
+    db.flush()
+    d.record_hash, d.record_event_id = event.hash, event.id
     db.commit()
     facility = db.get(models.Facility, rec.facility_id)
     if not facility.temporary:

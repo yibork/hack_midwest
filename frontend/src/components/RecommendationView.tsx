@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Evidence, RecommendationDetail } from "../api";
 import RecommendationHero from "./RecommendationHero";
+import SavedCopyLinks from "./SavedCopyLinks";
 import MapView from "./MapView";
 import { PeopleStrip } from "./People";
 import LocalSignals, { AuthorityBadge, LocalEvidenceDetail, isLocal } from "./LocalSignals";
@@ -178,8 +179,7 @@ export function EvidenceList({ evidence, tz }: { evidence: Evidence[]; tz: strin
                 <td className="py-2 pr-3 whitespace-nowrap">{fmtDateTime(e.source_time, tz)}</td>
                 <td className="py-2 pr-3 whitespace-nowrap">{fmtDateTime(e.retrieved_at, tz)}</td>
                 <td className="py-2 text-xs">
-                  {e.url ? <a className="underline" href={e.url} target="_blank" rel="noreferrer">Source</a> : "No live source"}
-                  {e.snapshot_hash && <details className="mt-1"><summary>Technical details</summary><code className="break-all">{e.snapshot_hash}</code></details>}
+                  <SavedCopyLinks evidence={e} />
                 </td>
               </tr>
             ))}

@@ -108,6 +108,9 @@ class Evidence(Base):
     scenario_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     scenario_kind: Mapped[str | None] = mapped_column(String(12), nullable=True)
 
+    saved_copy_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    saved_copy_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
 
 class Recommendation(Base):
     __tablename__ = "recommendations"
@@ -153,6 +156,8 @@ class Decision(Base):
     delay_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dismissal_time: Mapped[str | None] = mapped_column(String(5), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    record_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    record_event_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class Notice(Base):
@@ -271,6 +276,16 @@ class RecordEvent(Base):
     evaluation_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     event_type: Mapped[str] = mapped_column(String(64))
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    prev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class RecordChainHead(Base):
+    """Per-facility serialization point, not part of the immutable event payload."""
+    __tablename__ = "record_chain_heads"
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    event_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class InvestigationBudget(Base):
@@ -323,6 +338,18 @@ class DemoState(Base):
 @event.listens_for(RecordEvent, "before_update")
 def _refuse_update(mapper, connection, target):
     raise RuntimeError("RecordEvent is append-only; updates are not allowed")
+
+
+@event.listens_for(RecordEvent, "after_insert")
+def _seal_record(mapper, connection, target):
+    from .record import seal_insert
+    seal_insert(connection, target)
+
+
+@event.listens_for(RecordEvent, "before_insert")
+def _lock_record(mapper, connection, target):
+    from .record import lock_head
+    lock_head(connection, target.facility_id)
 
 
 @event.listens_for(RecordEvent, "before_delete")
