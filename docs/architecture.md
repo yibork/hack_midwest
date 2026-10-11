@@ -41,6 +41,15 @@ a manager approves.** Source research and the local-signal allowlist are in
 
 Everything above writes RecordEvents (append-only), so an evaluation can be replayed.
 
+## Policy provenance
+
+Policy 1.0.0 uses structured, verified citations for EAX criteria, CAP, NOAA KCDM7 and OPM.
+`/api/thresholds` and the Thresholds page expose the version/hash, change log and every rule or
+reference. The loader rejects a non-draft version with unverified entries. Facility posture
+mappings, confidence caps, calendar, access and staffing choices are documented in
+[facility-policy.md](facility-policy.md). FEB coordination is a manager reference with historical
+OPM provenance; no current status feed was verified. Old saved citation strings remain readable.
+
 ## Agents
 
 All agents are Strands agents on the Akamai inference service (`agents/model.py`, `runtime.py`).

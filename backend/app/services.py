@@ -68,6 +68,7 @@ def recommendation_detail(db: Session, rec: models.Recommendation) -> schemas.Re
     people = people_summary(db, rec, facility)
     return schemas.RecommendationDetail(
         **schemas.Recommendation.model_validate(rec).model_dump(),
+        change_rule_ids=[change_rule_id(line) for line in rec.what_would_change],
         facility=schemas.Facility.model_validate(facility),
         evidence=[schemas.Evidence.model_validate(e) for e in sorted(evidence, key=lambda e: e.retrieved_at)],
         decision=schemas.Decision.model_validate(decision) if decision else None,
@@ -75,6 +76,25 @@ def recommendation_detail(db: Session, rec: models.Recommendation) -> schemas.Re
         people=people,
         next_reevaluation=scheduler.next_run(db, rec.facility_id, rec.operating_date),
     )
+
+
+def change_rule_id(line: str) -> str:
+    """Resolve saved explanation strings to policy anchors, including old records."""
+    if "access_route_closed" in line or "Reopening" in line:
+        return "access_route_closed"
+    if "site_hazard_reported" in line:
+        return "site_hazard_reported"
+    if "58 mph" in line or "Sustained winds reaching 40 mph" in line or "High Wind" in line or "Extreme Wind" in line:
+        return "high_wind"
+    if "46 mph" in line or "Sustained winds reaching 31 mph" in line or "Wind Advisory" in line:
+        return "wind_advisory"
+    if "Flood" in line:
+        return "flood"
+    if "Thunderstorm" in line or "Tornado" in line:
+        return "convective"
+    if "Extreme" in line:
+        return "extreme_immediate_alert"
+    return "nws_cap"
 
 
 def lead_time_hours(db: Session, rec: models.Recommendation, at) -> float:

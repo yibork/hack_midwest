@@ -52,7 +52,7 @@ export interface Trigger {
   observed: number | string | null;
   margin: number | string | null; // e.g. "1 of 3 access routes closed"
   units: string | null;
-  citation: string;
+  citation: string | Citation;
   posture: Posture;
   evidence_id: string | null;
 }
@@ -67,6 +67,29 @@ export interface Decision {
   decided_at: string;
   delay_hours: number | null;
   dismissal_time: string | null;
+}
+
+export interface Citation {
+  title: string;
+  publisher: string;
+  url: string;
+  section_or_page: string;
+  retrieved_at: string;
+}
+export interface PolicyRule {
+  id: string;
+  description: string;
+  condition: string | { any: Record<string, unknown>[] };
+  posture: string;
+  group: "federal" | "coordination" | "facility";
+  citation: Citation;
+  justification: string;
+  verified: boolean;
+}
+export interface PolicyCatalog {
+  version: string;
+  change_log: { version: string; date: string; changes: string }[];
+  rules: PolicyRule[];
 }
 
 export interface Recommendation {
@@ -134,6 +157,7 @@ export interface PeopleSummary {
 }
 
 export interface RecommendationDetail extends Recommendation {
+  change_rule_ids: string[];
   facility: Facility;
   evidence: Evidence[];
   decision: Decision | null;
@@ -487,6 +511,7 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
 }
 
 export const api = {
+  thresholds: () => request<PolicyCatalog>("/thresholds"),
   health: () => request<{ status: string; demo_mode: boolean }>("/health"),
   facilities: () => request<Facility[]>("/facilities"),
   facility: (id: string) => request<Facility>(`/facilities/${id}`),

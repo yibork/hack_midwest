@@ -19,6 +19,12 @@ router = APIRouter(prefix="/api", dependencies=[Depends(manager_only)])
 public = APIRouter(prefix="/api")
 
 
+@router.get("/thresholds")
+def thresholds():
+    from .rules.engine import policy_catalog
+    return policy_catalog()
+
+
 def _get_or_404(db: Session, model, id_: str):
     obj = db.get(model, id_)
     if obj is None:

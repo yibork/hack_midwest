@@ -352,7 +352,7 @@ def test_access_route_closed_one_route_delays():
     rec = evaluate(FACILITY, [alerts_ev(), wind_ev(), fact_ev(routes=["I-35"])], NOW)
     t = next(t for t in rec.triggers if t.rule_id == "access_route_closed")
     assert rec.posture == "delayed_arrival" and t.margin == "1 of 3 access routes closed"
-    assert t.citation.startswith("facility policy v1")
+    assert t.citation.startswith("Facility policy v1.0")
 
 
 def test_access_route_closed_all_routes_telework():

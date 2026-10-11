@@ -137,7 +137,7 @@ class Trigger(BaseModel):
     observed: float | str | None = None
     margin: float | str | None = None  # observed - threshold (or e.g. "1 of 3 access routes closed")
     units: str | None = None
-    citation: str
+    citation: dict | str  # old saved recommendations retain their original citation string
     posture: Posture
     evidence_id: str | None = None
 
@@ -205,6 +205,7 @@ class Decision(ORMModel):
 
 
 class RecommendationDetail(Recommendation):
+    change_rule_ids: list[str] = []
     facility: Facility
     evidence: list[Evidence]
     decision: Decision | None = None

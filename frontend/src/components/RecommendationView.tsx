@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import type { Evidence, RecommendationDetail } from "../api";
 import DecisionClock from "./DecisionClock";
 import MapView from "./MapView";
@@ -91,7 +92,7 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
                     <td className="py-2 pr-3">{t.threshold}{t.units ? ` ${t.units}` : ""}</td>
                     <td className="py-2 pr-3 tabular-nums">{t.margin == null ? "—" : typeof t.margin === "string" ? t.margin : `${t.margin > 0 ? "+" : ""}${t.margin} ${t.units ?? ""}`}</td>
                     <td className="py-2 pr-3"><PostureBadge posture={t.posture} size="sm" /></td>
-                    <td className={`py-2 text-xs ${t.citation.startsWith("TODO") ? "text-amber-700" : "text-slate-600"}`}>{t.citation}</td>
+                    <td className="py-2 text-xs text-slate-600"><Link className="underline" to={`/thresholds#${t.rule_id}`}>{typeof t.citation === 'string' ? t.citation : t.citation.title} · View threshold and verification</Link></td>
                   </tr>
                 ))}
               </tbody>
@@ -109,7 +110,7 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
         </Card>
         <Card title="What would change this">
           <ul className="list-disc space-y-1 pl-5 text-sm">
-            {rec.what_would_change.map((r, i) => <li key={i}>{r}</li>)}
+            {rec.what_would_change.map((r, i) => <li key={i}>{r} <Link className="underline" to={`/thresholds#${rec.change_rule_ids?.[i] ?? 'nws_cap'}`}>Threshold</Link></li>)}
           </ul>
         </Card>
       </div>
