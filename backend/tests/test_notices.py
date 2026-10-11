@@ -20,7 +20,7 @@ from app.services import record_decision
 
 TZ = ZoneInfo("America/Chicago")
 NEEDS = ["early_notice", "mobility_early_dismissal", "text_only", "screen_reader", "large_text", "plain_language",
-         "accommodation_needs", "mobility"]
+         "accommodation_needs", "mobility", "air_quality_sensitive"]
 MANAGER = {"X-Role": "facility_manager"}
 
 

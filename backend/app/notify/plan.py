@@ -89,6 +89,7 @@ class Plan:
             for c in i.public_codes:
                 counts[c] = counts.get(c, 0) + 1
         return schemas.PeopleSummary(
+            supervisor_suggestion_count=sum(bool(i.supervisor_suggestion) for i in self.impacts),
             posture=self.ctx.posture, params=self.ctx.params(), clock=self.clock,
             exposed_count=self.exposed_count, coverage=self.coverage, counts_by_code=counts,
             action_required=sum(1 for i in self.impacts if i.message_type == "action_required"),

@@ -84,7 +84,8 @@ def plan_for(db: Session, facility: models.Facility, rec: models.Recommendation,
         shifts = [s for s in shifts if s.date != rec.operating_date] + roster_shifts(rec.operating_date, workday=True)
     ctx = context_for(facility, rec.operating_date, posture, now, functions, delay_hours, dismissal_time,
                       demo_workday=demo)
-    exposure = exposure_mod.load(db, facility.id, rec.evaluation_id, now, evidence_ids=rec.evidence_ids)
+    exposure = exposure_mod.load(db, facility.id, rec.evaluation_id, now, evidence_ids=rec.evidence_ids,
+                                 target_day=rec.operating_date)
     return build_plan(ctx, people, assignments, shifts, functions, exposure, base_url=settings.public_base_url,
                       previous=previous, call_ins=call_ins, facility_names=names)
 

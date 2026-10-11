@@ -67,18 +67,26 @@ def build_facts(rec: Recommendation, evidence: list[Evidence], facility_name: st
                               for a in e.value.get("alerts", [])]
         if e.kind == "wind_forecast" and isinstance(e.value, dict):
             item["peak_gust_next_24h_mph"] = e.value.get("peak_gust_mph")
+        if e.source == "airnow" and isinstance(e.value, dict):
+            item["pollutants"] = e.value.get("pollutants", [])
         ev_facts.append(item)
     from ..rules.engine import load_policy, compute_windows
     from ..sources.nws import parse_dt
     policy = load_policy()
-    pairs = {"gust": {"observed": [], "thresholds": [], "units": "mph", "window": "target-day commute"},
+    pairs = {"aqi": {"observed": [], "thresholds": [], "units": "AQI", "window": "target-day operating hours"},
+             "gust": {"observed": [], "thresholds": [], "units": "mph", "window": "target-day commute"},
              "sustained": {"observed": [], "thresholds": [], "units": "mph", "window": "target-day commute"}}
     for rule in policy.rules:
         for clause in rule.get("condition", {}).get("any", []):
+            if clause.get("type") == "air_quality":
+                pairs["aqi"]["thresholds"].extend(clause[k] for k in ("min_aqi", "below_aqi") if k in clause)
             metric = {"forecast_gust": "gust", "forecast_wind": "sustained"}.get(clause.get("type"))
             if metric:
                 pairs[metric]["thresholds"].extend(clause[k] for k in ("min_mph", "below_mph") if k in clause)
     windows = compute_windows(facility, rec.evaluated_at, policy, rec.operating_date) if facility else None
+    if facility:
+        from ..sources.airnow import candidates
+        pairs["aqi"]["observed"] = [aqi for aqi, _, _ in candidates(evidence, rec.operating_date, rec.evaluated_at, facility.timezone)]
     for ev in evidence:
         if ev.kind != "wind_forecast" or not isinstance(ev.value, dict):
             continue
@@ -155,6 +163,11 @@ def validate_rationale(text: str, posture: str, facts: dict, stated_posture: str
         # A comparison must stay within one metric even if both numbers exist elsewhere.
         for clause in re.split(r";|\band\b", sentence):
             numbers = re.findall(r"\d+(?:\.\d+)?(?=\s*(?:mph|/|\b))", clause)
+            if re.search(r"\bAQI\b", clause, re.I) and "aqi" in facts.get("metric_threshold_pairs", {}):
+                metric_values = facts["metric_threshold_pairs"]["aqi"]
+                allowed_aqi = {float(n) for n in metric_values["observed"] + metric_values["thresholds"]}
+                if re.search(r"\bmph\b", clause, re.I) or any(float(n) not in allowed_aqi for n in numbers):
+                    return "metric mismatch: AQI compared with a number or unit not grounded in air quality"
             if not re.search(r"\bmph\b", clause, re.I) or not numbers:
                 continue
             metric = "gust" if re.search(r"\bgusts?\b", clause, re.I) else "sustained" if re.search(r"\bsustained\b|\bwind\b", clause, re.I) else None

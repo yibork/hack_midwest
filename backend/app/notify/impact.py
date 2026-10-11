@@ -433,6 +433,7 @@ def compute_impact(ctx: PostureContext, person: Employee, assignments: list[Assi
             and shift.overlaps(ctx.open_dt, ctx.close_dt)
             and "air_quality_sensitive" in person.accommodation_needs):
         imp.add("ACCOMMODATION_ON_FILE", "accommodation on file", "accommodation on file")
+        imp.add("SUPERVISOR_SUGGESTION", "supervisor review requested", "supervisor review requested")
         imp.supervisor_suggestion = "Accommodation on file: offer unscheduled telework, subject to agency eligibility and emergency duties."
 
     # ---- 6. accommodations (private; never named outside the person's own message)

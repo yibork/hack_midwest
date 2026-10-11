@@ -483,12 +483,14 @@ def refresh_expired(evidence, state):
         return evidence
     event(state, "investigation.refresh_started", kinds=sorted({e.kind for e in old}))
     actions = []
-    if any(e.source == "airnow" for e in old):
+    if any(e.source == "airnow" for e in old) and not any(e.source == "nws" for e in old):
         from .sources import airnow
         with SessionLocal() as db:
             rec = db.get(models.Recommendation, state["recommendation_id"])
             fac, _, _ = context(db, rec)
+        event(state, "agent.tool_call_start", tool="EPA AirNow air quality", operating_date=str(rec.operating_date))
         services.store_evidence_now(airnow.collect(fac, rec.operating_date), fac.id, state["evaluation_id"])
+        event(state, "agent.tool_call_end", tool="EPA AirNow air quality")
     if any(e.source == "nws" for e in old):
         nws.clear_cache()
         actions.append("recheck_now")

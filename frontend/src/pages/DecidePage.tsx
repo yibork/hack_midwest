@@ -58,7 +58,7 @@ function DecideFlow({ rec: initial }: { rec: RecommendationDetail }) {
         <Card title="Evidence and staffing"><details><summary>Why this recommendation</summary><p className="mt-2 text-sm text-slate-700">{humanText(rec.rationale)}</p></details>
           {rec.people && <div className="mt-3"><PeopleStrip people={rec.people} /></div>}</Card>
 
-        {rec.posture === 'normal' && (!rec.people || rec.people.action_required + rec.people.fyi === 0) && <Card title="No notification needed"><p>Nobody needs to be notified for normal operations.</p>{health.data?.demo_mode && <p className="mt-2 text-sm">For a notification demo, override with a documented reason or choose the SIMULATED winter storm on the Facility page.</p>}</Card>}
+        {rec.posture === 'normal' && (!rec.people || (rec.people.action_required + rec.people.fyi === 0 && !rec.people.supervisor_suggestion_count)) && <Card title="No notification needed"><p>Nobody needs to be notified for normal operations.</p>{health.data?.demo_mode && <p className="mt-2 text-sm">For a notification demo, override with a documented reason or choose the SIMULATED winter storm on the Facility page.</p>}</Card>}
         {step === 1 && !decision && <Button disabled={rec.status === 'preliminary'} onClick={() => setStep(2)}>Continue to approve or override</Button>}
         {step > 1 && (decision ? (
           <Card title="2 · Decision recorded">

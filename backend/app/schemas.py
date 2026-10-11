@@ -377,6 +377,7 @@ class DecisionClock(BaseModel):
 
 
 class PeopleSummary(BaseModel):
+    supervisor_suggestion_count: int = 0
     exposure_status: Literal["current", "unknown"] = "current"
     exposure_note: str | None = None
     posture: Posture
