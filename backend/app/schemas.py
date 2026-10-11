@@ -242,6 +242,10 @@ class Notice(ORMModel):
 
 
 class ChannelResult(BaseModel):
+    status: Literal["delivered", "simulated", "failed"] | None = None
+    message: str | None = None
+    http_status: int | None = None
+    attempted_at: dt.datetime | None = None
     sent_at: dt.datetime | None = None
     ok: bool
     error: str | None = None

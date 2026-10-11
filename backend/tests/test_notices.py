@@ -98,6 +98,12 @@ def test_simulated_staff_not_marked_sent_or_retried(monkeypatch):
     before = {n.id: n.channel_results for n in synthetic}
     after = _send(notice.id)
     assert all(n.channel_results == before[n.id] for n in after if n.id in before)
+    with TestClient(app) as client:
+        response = client.get(f"/api/decisions/{notice.decision_id}/notice", headers=MANAGER)
+    assert response.status_code == 200
+    public = {n["id"]: n for n in response.json()["notifications"]}
+    assert all(r["status"] == "simulated" and r["message"].startswith("simulated:")
+               for nid in before for r in public[nid]["channel_results"].values())
 
 def test_notice_versioning_update_all_clear_and_no_duplicates(quiet_channels):
     # v1: closure tomorrow (own date, so other tests' notices don't interfere)

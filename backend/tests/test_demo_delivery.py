@@ -4,7 +4,7 @@ from dataclasses import replace
 import httpx
 import pytest
 
-from app import models
+from app import models, schemas
 from app.notify import channels, notices
 from app.seed import emp_id
 
@@ -62,6 +62,8 @@ def test_provider_failures_keep_http_status_and_message(demo, monkeypatch, chann
     assert result["status"] == "failed" and result["http_status"] == status
     assert message in result["error"] and demo.resend_api_key not in result["error"]
     assert result["sent_at"] is None
+    public = schemas.ChannelResult.model_validate(result).model_dump()
+    assert public["http_status"] == status and message in public["error"] and public["status"] == "failed"
 
 
 def test_missing_demo_email_never_sends_to_synthetic_address(demo, monkeypatch):
