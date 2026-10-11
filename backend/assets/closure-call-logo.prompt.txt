@@ -1,0 +1,7 @@
+Generated using the built-in image_gen tool, with transparent_background=true.
+
+Use case: logo-brand.
+Create one polished original horizontal logo lockup for "Closure Call", a weather-driven facility operations decision-support application. Intended for a GitHub README header and a light-background web app.
+Design: a bold memorable geometric emblem at left: a simplified architectural doorway/building silhouette integrated with a single clean checkmark, with a subtle curved weather/signal arc above. Make one coherent clever symbol, not a collage of icons. Civic competence, calm preparedness, human judgment. Bespoke professional brand identity, flat vector-like shapes, immaculate edges, restrained negative space.
+Wordmark at right: exact text "Closure Call", elegant substantial modern sans-serif, meticulous kerning, dark ink navy. Distinctive but immediately legible. Emblem uses deep navy and muted teal with a very small warm amber weather/signal accent. Wide horizontal layout, logo occupies most of canvas with modest clear space, symbol optically aligned with wordmark, approximately 3:1 aspect.
+Genuinely transparent background. No tagline, no mockup, no shadows, no gradients, no 3D, no border, no official government seal, no additional text. One finished logo only, not a presentation of variations.

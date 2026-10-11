@@ -1,4 +1,6 @@
-# Closure Call
+<p align="center">
+  <img src="assets/closure-call-logo.png" alt="Closure Call" width="640" />
+</p>
 
 ### Make the call. Reach the right people. Keep the reasons.
 
