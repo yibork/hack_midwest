@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { POSTURES, api, type Decision, type Posture, type RecommendationDetail } from "../api";
 import AgentActivity from "../components/AgentActivity";
@@ -35,6 +35,15 @@ function DecideFlow({ rec: initial }: { rec: RecommendationDetail }) {
   const [decision, setDecision] = useState<Decision | null>(rec.decision);
   const [sending, setSending] = useState(false);
   const tz = rec.facility.timezone;
+  useEffect(() => {
+    if (rec.status !== 'preliminary') return;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      try {const updated = await api.recommendation(rec.id); if (!cancelled) setRec(updated);}
+      catch { /* The investigation panel shows progress errors and retries. */ }
+    }, 1500);
+    return () => {cancelled = true; clearInterval(timer);};
+  }, [rec.id, rec.status]);
 
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
@@ -73,7 +82,7 @@ function DecideFlow({ rec: initial }: { rec: RecommendationDetail }) {
           </Card>
         ) : rec.status === "preliminary" ? (
           <Card title="2 · Approve or override">
-            <p className="text-slate-700">Preliminary - road check in progress. Approval opens when it finishes.</p>
+            <p className="text-slate-700">Preliminary — evidence check in progress. This page updates automatically; approval opens when it finishes.</p>
             <Button className="mt-3" variant="secondary" onClick={() => window.location.reload()}>Check again</Button>
           </Card>
         ) : (

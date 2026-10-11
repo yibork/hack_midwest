@@ -131,6 +131,7 @@ class Recommendation(Base):
     status: Mapped[str | None] = mapped_column(String(12), nullable=True)  # preliminary | final (None = final)
     previous_recommendation_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     revision_diff: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    revision_context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class Decision(Base):

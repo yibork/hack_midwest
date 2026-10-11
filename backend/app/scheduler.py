@@ -70,7 +70,7 @@ def tick(now: datetime | None = None) -> list[dict]:
                         .order_by(models.Recommendation.evaluated_at.desc()).limit(1))
                     if latest and latest.status == "preliminary":
                         continue  # retry next tick once the previous check finishes
-                    result = investigations.request(db, latest, schemas.InvestigationIn(action="recheck_now")) if latest else {"error": "No target-day recommendation"}
+                    result = investigations.request(db, latest, schemas.InvestigationIn(action="recheck_now"), scheduled_job=job.key) if latest else {"error": "No target-day recommendation"}
                 else:
                     result = pipeline.recheck(db, facility, job.operating_date, job_key=job.key)
                 job.status = "done"

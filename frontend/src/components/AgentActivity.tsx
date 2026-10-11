@@ -111,6 +111,12 @@ function describe(e: RecordEvent): Line | null {
       return { ...base, title: `${who} · model`, detail: p.summary, tone: "muted" };
     case "agent.tool_call_start":
       return { ...base, title: `${who} → ${p.tool}`, tone: "tool" };
+    case "investigation.refresh_started":
+      return { ...base, title: 'Refreshing expired sources', detail: (p.kinds ?? []).join(', '), tone: 'tool' };
+    case "investigation.refresh_finished":
+      return { ...base, title: 'Source refresh complete', detail: `${p.refreshed} refreshed; ${p.stale} still stale after refetch`, tone: 'tool' };
+    case "investigation.refresh_failed":
+      return { ...base, title: 'Source refresh failed', detail: `${p.tool}: ${p.reason}`, tone: 'muted' };
     case "agent.tool_call_end":
       return { ...base, title: `${who} ← ${p.tool}`, detail: p.summary, tone: "tool" };
     case "agent.evidence_note":

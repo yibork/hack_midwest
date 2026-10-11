@@ -168,6 +168,7 @@ class Recommendation(ORMModel):
     status: str | None = "final"
     previous_recommendation_id: str | None = None
     revision_diff: dict | None = None
+    revision_context: dict | None = None
 
 
 HHMM = Annotated[str, StringConstraints(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")]

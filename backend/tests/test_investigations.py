@@ -442,3 +442,140 @@ def test_why_road_closed_uses_only_record_and_states_distance(scenario, monkeypa
     row = requested(db, rec, question='Why is the access road closed?')
     assert '2 km' in row.result['answer'] and report.id in row.result['evidence_ids']
     assert row.result['source_label'] == 'Record summary'
+
+
+def test_revision_preserves_original_calendar_reason_and_separate_context(scenario, monkeypatch):
+    db, rec, _, _ = scenario
+    why = 'Mon Oct 12 is a federal holiday (Columbus Day); next workday Tue Oct 13.'
+    rec.target_note = why
+    db.commit()
+    monkeypatch.setattr(inv, 'run_check', lambda *a: None)
+    row = requested(db, rec, action='recheck_now')
+    revision = db.get(models.Recommendation, row.revised_recommendation_id)
+    assert revision.target_note == why and f'Target day: {why}' in revision.rationale
+    assert revision.revision_context['kind'] == 'recheck'
+    assert revision.revision_context['at'] and revision.revision_context['investigation_id'] == row.id
+    # Old production revisions remain in history, but the next version restores root provenance.
+    revision.target_note = f'Investigation for saved target day {revision.operating_date}'
+    db.commit()
+    next_row = requested(db, revision, action='check_river')
+    assert db.get(models.Recommendation, next_row.revised_recommendation_id).target_note == why
+
+
+def test_scheduled_revision_keeps_calendar_reason(scenario, monkeypatch):
+    db, rec, _, _ = scenario
+    rec.target_note = 'Calendar explanation kept unchanged'
+    db.commit()
+    monkeypatch.setattr(inv, 'run_check', lambda *a: None)
+    accepted = inv.request(db, rec, schemas.InvestigationIn(action='recheck_now'), launch=False, scheduled_job='morning-job')
+    inv.run(accepted['investigation_id']); db.expire_all()
+    row = db.get(models.Investigation, accepted['investigation_id'])
+    revision = db.get(models.Recommendation, row.revised_recommendation_id)
+    assert revision.target_note == rec.target_note
+    assert revision.revision_context['kind'] == 'scheduled_job'
+
+
+def refresh_state(rec, fac):
+    import threading
+    return runtime.new_state(evaluation_id=uuid.uuid4().hex, facility_id=fac.id,
+        recommendation_id=rec.id, operating_date=rec.operating_date, tools_used=[], tool_lock=threading.Lock())
+
+
+def test_expired_weather_refetched_without_model_and_old_record_unchanged(scenario, monkeypatch):
+    db, rec, fac, _ = scenario
+    _, _, evidence = inv.context(db, rec)
+    wind = next(e for e in evidence if e.kind == 'wind_forecast')
+    wind.valid_until = utcnow() - timedelta(minutes=1); db.commit()
+    called = []
+    monkeypatch.setattr(runtime, 'make_agent', lambda *a: pytest.fail('refresh used a model'))
+    monkeypatch.setattr(inv.nws, 'clear_cache', lambda: called.append('cache cleared'))
+    def check(action, state):
+        called.append(action)
+        ev = schemas.Evidence.model_validate(wind).model_copy(update={'id': uuid.uuid4().hex,
+            'retrieved_at': utcnow(), 'valid_until': utcnow() + timedelta(hours=3), 'status': 'ok'})
+        inv.services.store_evidence_now([ev], fac.id, state['evaluation_id'])
+    monkeypatch.setattr(inv, 'run_check', check)
+    merged = inv.refresh_expired(evidence, refresh_state(rec, fac))
+    assert called == ['cache cleared', 'recheck_now']
+    fresh = next(e for e in merged if e.kind == 'wind_forecast')
+    assert fresh.id != wind.id and fresh.status == 'ok' and fresh.valid_until > utcnow()
+    assert db.get(models.Evidence, wind.id).valid_until < utcnow()
+
+
+def test_failed_refresh_retains_stale_copy_with_failure_provenance(scenario, monkeypatch):
+    db, rec, fac, _ = scenario
+    _, _, evidence = inv.context(db, rec)
+    wind = next(e for e in evidence if e.kind == 'wind_forecast')
+    wind.valid_until = utcnow() - timedelta(minutes=1); db.commit()
+    monkeypatch.setattr(inv, 'run_check', lambda *a: (_ for _ in ()).throw(RuntimeError('network failure')))
+    merged = inv.refresh_expired(evidence, refresh_state(rec, fac))
+    stale = next(e for e in merged if e.kind == 'wind_forecast')
+    assert stale.id != wind.id and stale.status == 'stale'
+    assert stale.value['hours'] == wind.value['hours']
+    assert stale.value['last_successful_retrieved_at'] == wind.retrieved_at.isoformat()
+    assert 'RuntimeError' in stale.value['refresh_error']
+    assert wind.status == 'ok'  # historical evidence was not mutated
+
+
+def test_local_source_refresh_window_applies_without_explicit_expiry(scenario, monkeypatch):
+    _, rec, fac, _ = scenario
+    source = next(s for s in inv.local_signals.sources() if s.agent == 'roads')
+    old = schemas.Evidence(id=uuid.uuid4().hex, source='local', kind='local_feed', status='ok',
+        retrieved_at=utcnow()-timedelta(minutes=source.refresh_minutes+1), value={'source_id': source.id})
+    calls = []
+    monkeypatch.setattr(inv.local_signals, 'invalidate_cache', lambda ids: calls.append(ids))
+    def check(action, state):
+        calls.append(action)
+        fresh = old.model_copy(update={'id': uuid.uuid4().hex, 'retrieved_at': utcnow()})
+        inv.services.store_evidence_now([fresh], fac.id, state['evaluation_id'])
+    monkeypatch.setattr(inv, 'run_check', check)
+    assert inv.refresh_expired([old], refresh_state(rec, fac))[0].status == 'ok'
+    assert calls == [{source.id}, 'check_local_closures']
+
+
+def test_fresh_saved_sources_are_reused_without_refetch(scenario, monkeypatch):
+    db, rec, fac, _ = scenario
+    _, _, evidence = inv.context(db, rec)
+    monkeypatch.setattr(inv, 'run_check', lambda *a: pytest.fail('fresh source was refetched'))
+    assert inv.refresh_expired(evidence, refresh_state(rec, fac)) == evidence
+
+
+def test_diff_ignores_trigger_evidence_ids_and_citation_bookkeeping(scenario, monkeypatch):
+    db, rec, _, _ = scenario
+    t = {'rule_id': 'wind_advisory', 'description': 'Wind advisory', 'posture': 'delayed_arrival',
+         'threshold': 46, 'observed': 47, 'margin': 1, 'units': 'mph', 'evidence_id': 'old', 'citation': 'old'}
+    rec.triggers = [t]
+    monkeypatch.setattr(inv.services, 'people_summary', lambda *a: None)
+    after = SimpleNamespace(**{k: getattr(rec, k) for k in ('posture','confidence','confidence_reasons','what_would_change')},
+        triggers=[{**t, 'evidence_id': 'new', 'citation': 'fresh retrieval'}])
+    assert inv.diff(db, rec, after)['changed'] is False
+
+
+def test_confidence_reason_added_is_meaningful_even_when_level_unchanged(scenario, monkeypatch):
+    db, rec, _, _ = scenario
+    monkeypatch.setattr(inv.services, 'people_summary', lambda *a: None)
+    after = SimpleNamespace(**{k: getattr(rec, k) for k in ('posture','confidence','triggers','what_would_change')},
+                            confidence_reasons=[*rec.confidence_reasons, 'River refetch failed'])
+    result = inv.diff(db, rec, after)
+    assert result['changed'] and 'confidence_reasons' in result['changes'] and 'confidence' not in result['changes']
+
+
+def test_investigation_revision_refetches_expired_weather_before_rules(scenario, monkeypatch):
+    db, rec, fac, _ = scenario
+    _, _, evidence = inv.context(db, rec)
+    old_wind = next(e for e in evidence if e.kind == 'wind_forecast')
+    old_wind.valid_until = utcnow() - timedelta(minutes=1); db.commit()
+    actions = []
+    def check(action, state):
+        actions.append(action)
+        if action == 'recheck_now':
+            fresh = schemas.Evidence.model_validate(old_wind).model_copy(update={'id': uuid.uuid4().hex,
+                'retrieved_at': utcnow(), 'valid_until': utcnow() + timedelta(hours=3), 'status': 'ok'})
+            inv.services.store_evidence_now([fresh], fac.id, state['evaluation_id'])
+    monkeypatch.setattr(inv, 'run_check', check)
+    monkeypatch.setattr(runtime, 'make_agent', lambda *a: pytest.fail('deterministic investigation used a model'))
+    row = requested(db, rec, action='check_river')
+    revision = db.get(models.Recommendation, row.revised_recommendation_id)
+    assert actions == ['recheck_now', 'check_river']
+    assert old_wind.id not in revision.evidence_ids
+    assert not any('is stale' in reason for reason in revision.confidence_reasons)

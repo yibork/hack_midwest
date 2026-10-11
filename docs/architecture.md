@@ -117,9 +117,10 @@ The team's inference quota is shared: 60 requests/min across all endpoints.
 - **What a job runs.** The *deterministic* pipeline: NWS tools in code, local signals with the
   rules plan, and road facts from the cache or code extraction. No model calls.
 - **Then.** It compares posture, triggers and confidence with the latest recommendation for
-  that day. Only if something changed does it run the full pipeline with agents, which stores a
-  new recommendation labelled "Scheduled re-evaluation". Either way it records
-  `scheduled.recheck`.
+  that day. When something changes, existing recommendations receive a linked deterministic
+  revision, preserving the calendar explanation; the scheduled-job label is stored separately.
+  A day with no earlier recommendation uses the normal evaluation pipeline. Either way it
+  records `scheduled.recheck`.
 - **Past days.** Jobs for days already gone are skipped.
 - **Decision record.** Each decision records the forecast lead time (hours to the commute window).
 
@@ -162,6 +163,17 @@ The pure engine reruns sufficiency, rules and lead-time confidence; the people e
 recipient-count differences. A pending revision is preliminary and cannot be approved; neither
 can its superseded predecessor. Audit events retain requests, tools, evidence, answers and diffs.
 On restart, interrupted checks settle from stored evidence without resending staff requests.
+Revisions preserve the root recommendation's `target_note` unchanged. Their `revision_context`
+stores the investigation/recheck/staff/scheduled-job cause, question and timestamp separately.
+Diffs ignore refreshed evidence IDs and citation bookkeeping; the UI hides unchanged checks and
+describes meaningful trigger, confidence-reason and recipient changes in plain language.
+
+Before a revision evaluates old evidence, expired source windows cause deterministic refetches
+(NWS, NOAA river or allowlisted local sources), bypassing the affected HTTP cache. No inference
+is used for freshness. Successful refreshes replace expired rows in the new recommendation;
+failed refreshes retain an additive stale copy with the last successful retrieval time and a
+refresh-failure note. Historical evidence is never edited. Record-only explanations still read
+the saved record without tools.
 
 Staff questions target assigned `facility_ops` people. ntfy HTTP-action buttons POST one offered
 option to a single-use hashed token, expiring after two hours; an HTML form is the link fallback.
