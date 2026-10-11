@@ -17,6 +17,7 @@ os.environ["SCHEDULER_LOOP"] = "0"
 os.environ["ROADS_WATCH"] = "0"
 os.environ["GEOCODE"] = "0"
 os.environ["DEMO_MODE"] = "0"
+os.environ["STAFFING_FEATURE"] = "0"
 os.environ["LOCAL_SIGNALS"] = "0"  # local-signal tests call the modules directly with fixtures
 os.environ["PUBLIC_BASE_URL"] = "http://closurecall.test"
 os.environ["NTFY_TOPIC"] = ""

@@ -170,6 +170,8 @@ def test_missing_raw_snapshot_has_honest_normalized_copy_and_metadata(audit_db):
 
 
 def test_memo_all_sections_anchor_stable_and_private_needs_omitted(audit_db, monkeypatch):
+    from dataclasses import replace
+    monkeypatch.setattr(memo, "settings", replace(memo.settings, staffing_feature=True))
     db, _ = audit_db
     rec, ev = saved_recommendation(db)
     # Avoid message drafting completely, even mock model calls are unnecessary.

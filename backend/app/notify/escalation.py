@@ -51,6 +51,8 @@ def tick(now: datetime | None = None) -> list[str]:
             models.Notification.archived_at.is_(None),
             models.Notification.acknowledged_at.is_(None), models.Notification.escalation_level < 2)).all()
         for n in pending:
+            if not settings.staffing_feature and n.message_type in {"staffing_alert", "call_in"}:
+                continue
             notice = db.get(models.Notice, n.notice_id)
             person = db.get(models.Employee, n.employee_id)
             elapsed = now - n.sent_at

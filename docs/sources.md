@@ -32,8 +32,8 @@ Current readings never substitute for a future-day forecast. The higher applicab
 is used; stale readings do not trigger a new posture.
 
 Collection uses fixed allowlisted endpoints, disables redirects, and deliberately avoids
-HTTP clients that log credential-bearing request URLs. Exceptions are described by type and
-HTTP status only. The key, URL-encoded/JSON-escaped forms and credential fields are removed
+HTTP clients that log credential-bearing request URLs. Exceptions retain sanitized provider
+messages and HTTP status. The key, URL-encoded/JSON-escaped forms and credential fields are removed
 before normalized provider JSON is hashed and saved. Public evidence/record URLs omit the
 key parameter entirely. Saved-copy links explicitly describe credential-safe normalized JSON.
 
@@ -57,6 +57,26 @@ employees have a private need type; manager/supervisor views and notices use onl
 
 ## Live national demo (verified 2026-10-11 UTC)
 
+Nearby river context uses `https://api.water.noaa.gov/nwps/v1/gauges` with
+`bbox.xmin/ymin/xmax/ymax` and `srid=EPSG_4326`, verified against NOAA's public Swagger
+and a live Coffee/Dale-area response. Candidates are distance-checked and their gauge
+metadata confirms defined action/minor/moderate/major categories before selection.
+The closest eligible gauge within 40 km supplies metadata and `/stageflow`, saved with hashes.
+No eligible gauge means “no river gauge nearby”; lookup failure remains unknown.
+Gauge stage/categories are context only, never evidence of synthetic-facility inundation.
+
+Flood triggers cite the opened national [Flood/Flash Flood definitions](https://www.weather.gov/safety/flood-watch-warning)
+and the `/points`-confirmed office. Numeric wind criteria outside EAX are explicitly facility
+choices; where local criteria have not been verified, the opened national
+[NWS Directive 10-515](https://www.weather.gov/media/directives/010_pdfs/pd01005015curr.pdf)
+is the reference, not the KC office. Alert validity includes both dates and facility timezone.
+
+AirNow may return HTTP 200 with `WebServiceError` rather than a list. Credential-safe live
+verification found “no observations” and “no reporting area” at the AL coordinates; these
+are explicit coverage gaps, not parsing failures or claims of good air. Empty lists show
+“no monitor within 25 mi.” Other provider errors remain applicable failures with redacted
+messages. Unknown timezone abbreviations use the facility's confirmed IANA timezone.
+
 The presenter scans `/api/demo/national-alerts`, backed by the actual
 [NWS active-alert API](https://api.weather.gov/alerts/active?status=actual).
 Only named, verified policy hazards (wind, flood/flash flood, convective warnings and winter)
@@ -75,10 +95,11 @@ the onset's local date, or today for an ongoing alert, treated as a demo workday
 and commute/operating windows stay real. A short-lived alert outside those windows may yield
 Normal operations. Never force it to fire or shift its timestamps.
 
-Original KC home zones, local adapters and KCDM7 are **not available for this location**;
-they remain unknown on rechecks and sweeps, not empty/clear feeds. No long-distance KC commute
-corridors are drawn. Forecaster products use the confirmed local office, not EAX. Missing
-coverage lowers confidence without erasing a real warning's posture. All notifications and
+Original KC home zones and local adapters are **not applicable at this location**;
+they are excluded from sufficiency/confidence, not empty/clear feeds. KC adapter exclusions
+are grouped into one confidence-detail line. No long-distance KC commute corridors are drawn.
+Forecaster products use the confirmed local office, not EAX. Only applicable failures lower
+confidence, without erasing a real warning's posture. All notifications and
 memos distinguish live evidence from the synthetic relocated facility; approval/Send guards
 are unchanged. Reset archives all relocated demo work too, retaining evidence and hash chains.
 

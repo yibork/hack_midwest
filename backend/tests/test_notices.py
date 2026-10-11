@@ -15,6 +15,7 @@ from app import calendar, models, schemas
 from app.db import SessionLocal, utcnow
 from app.main import app
 from app.notify import escalation, notices
+from app.notify import plan as plan_module
 from app.seed import FACILITY_ID, ROSTER, emp_id, seed
 from app.services import record_decision
 
@@ -33,6 +34,11 @@ def _seeded():
 def quiet_channels(monkeypatch):
     """Record deliveries instead of printing them."""
     sent = []
+    enabled = dataclasses.replace(notices.settings, staffing_feature=True)
+    monkeypatch.setattr(notices, "settings", enabled)
+    monkeypatch.setattr(plan_module, "settings", enabled)
+    from app import people_api
+    monkeypatch.setattr(people_api, "settings", enabled)
     monkeypatch.setattr(notices, "send_push", lambda topic, t, m, ack=None: (sent.append(("push", t)) or (False, "no topic")))
     monkeypatch.setattr(notices, "send_email", lambda to, s, b, h=None: (sent.append(("email", s)) or (True, None)))
     return sent

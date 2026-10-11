@@ -14,6 +14,7 @@ import { Button, Card, ConfidenceBadge, PostureBadge, StatusBadge, fmtDateTime, 
 /** The full recommendation: posture, clock, triggers, confidence, what would change, rationale, evidence. */
 export default function RecommendationView({ rec, actions }: { rec: RecommendationDetail; actions?: ReactNode }) {
   const tz = rec.facility.timezone;
+  const applicable = rec.evidence.filter(e => (e.value as {applicable?: boolean})?.applicable !== false);
   return (
     <div className="space-y-4">
       {rec.status === "preliminary" && (
@@ -54,7 +55,11 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
                     <td className="py-2 pr-3">{t.threshold}{t.units ? ` ${t.units}` : ""}</td>
                     <td className="py-2 pr-3 tabular-nums">{t.margin == null ? "—" : typeof t.margin === "string" ? t.margin : `${t.margin > 0 ? "+" : ""}${t.margin} ${t.units ?? ""}`}</td>
                     <td className="py-2 pr-3"><PostureBadge posture={t.posture} size="sm" /></td>
-                    <td className="py-2 text-xs text-slate-600"><Link className="underline" to={`/thresholds#${t.rule_id}`}>{typeof t.citation === 'string' ? t.citation : t.citation.title} · View threshold and verification</Link></td>
+                    <td className="py-2 text-xs text-slate-600">
+                      {typeof t.citation === 'string' ? t.citation : <><a className="underline" href={t.citation.url}>{t.citation.title}</a>
+                        {t.citation.local_office && <div><a className="underline" href={t.citation.local_office_url}>Local NWS office: {t.citation.local_office}</a></div>}
+                        {t.citation.criteria_scope && <div>{t.citation.criteria_scope}</div>}</>}
+                      <div><Link className="underline" to={`/thresholds#${t.rule_id}`}>View threshold and verification</Link></div></td>
                   </tr>
                 ))}
               </tbody>
@@ -101,11 +106,27 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
       {!rec.facility.temporary && <Disclosure title="Map" summary="Facility, access routes, commute bands and local facts"><MapView recId={rec.id} title="Map: facility, access routes, commute bands, local facts" /></Disclosure>}
 
       <AirQuality evidence={rec.evidence} tz={tz} targetDay={rec.operating_date} />
-      <Disclosure title="Evidence" summary={`${rec.evidence.length} sources · ${rec.evidence.every(e => e.status === 'ok' && (!e.valid_until || new Date(e.valid_until).getTime() > Date.now())) ? 'all current' : 'missing or stale sources; see details'}`}>
+      <RiverSummary evidence={rec.evidence} />
+      <Disclosure title="Evidence" summary={`${applicable.length} applicable sources · ${applicable.every(e => e.status === 'ok' && (!e.valid_until || new Date(e.valid_until).getTime() > Date.now())) ? 'all current' : 'missing or stale applicable sources; see details'}`}>
       <EvidenceList evidence={rec.evidence} tz={tz} />
       </Disclosure>
     </div>
   );
+}
+
+function RiverSummary({evidence}: {evidence: Evidence[]}) {
+  const categories = evidence.find(e => e.kind === 'river_categories');
+  if (!categories) return null;
+  const c = categories.value as {applicable?: boolean; error?: string; gauge?: string; name?: string; distance_km?: number; categories?: Record<string, {stage: number}>; units?: string};
+  if (c.applicable === false) return <p className="text-sm text-slate-600">NOAA river context — no river gauge nearby (within 40 km)</p>;
+  const stages = evidence.find(e => e.kind === 'river_forecast')?.value as {current?: {primary: number}; forecast?: {primary: number}[]; units?: string} | undefined;
+  return <div className="text-sm" aria-label="River gauge"><strong>NOAA river context — {c.name ?? c.gauge ?? 'unknown'}</strong>
+    {c.distance_km != null && ` · ${c.distance_km} km away`}
+    <p>Stage: {stages?.current?.primary != null && stages.current.primary > -900 ? `${stages.current.primary} ${c.units}` : 'current stage unavailable'}
+      {stages?.forecast?.length ? ` · target-window forecast peak ${Math.max(...stages.forecast.map(p => p.primary))} ${stages.units}` : ''}
+      {c.categories && ` · ${Object.entries(c.categories).map(([name, v]) => `${name}: ${v.stage > -900 ? v.stage : 'not defined'} ${c.units}`).join(' · ')}`}</p>
+    <SavedCopyLinks evidence={categories} /><p className="text-slate-600">Gauge context does not establish flooding at the synthetic facility.</p>
+  </div>;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -150,9 +171,14 @@ export function NearestThresholds({rec}: {rec: RecommendationDetail}) {
 }
 
 export function EvidenceList({ evidence, tz }: { evidence: Evidence[]; tz: string }) {
+  const excluded = evidence.filter(e => (e.value as {applicable?: boolean})?.applicable === false);
+  evidence = evidence.filter(e => (e.value as {applicable?: boolean})?.applicable !== false);
   const bad = evidence.filter((e) => e.status !== "ok").length;
   return (
     <Card title={`Evidence (${evidence.length})${bad ? ` · ${bad} not OK` : ""}`}>
+      {!!excluded.length && <details className="mb-2 text-sm text-slate-600"><summary>{excluded.length} coverage items not applicable at this location</summary>
+        {excluded.map(e => <p key={e.id}>{(e.value as {source_name?: string; error?: string}).source_name ?? e.kind.replace(/_/g, ' ')} — {(e.value as {error?: string}).error}</p>)}
+      </details>}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-left text-slate-500">

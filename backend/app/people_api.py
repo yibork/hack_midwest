@@ -97,8 +97,10 @@ def notice_detail(db: Session, notice: models.Notice) -> schemas.NoticeDetail:
         models.Employee.id.in_({n.employee_id for n in rows})))}
     prev = db.get(models.Notice, notice.supersedes_notice_id) if notice.supersedes_notice_id else None
     return schemas.NoticeDetail(
+        staffing_feature=settings.staffing_feature,
         notice=schemas.Notice.model_validate(notice), previous=schemas.Notice.model_validate(prev) if prev else None,
-        clock=plan.clock, coverage=plan.coverage, notifications=[schemas.Notification.model_validate(n) for n in rows],
+        clock=plan.clock, coverage=plan.coverage, notifications=[schemas.Notification.model_validate(n) for n in rows
+            if settings.staffing_feature or n.message_type not in {"staffing_alert", "call_in"}],
         names=names)
 
 
@@ -167,6 +169,8 @@ def get_notice(notice_id: str, db: Session = Depends(get_db)):
 @router.post("/notices/{notice_id}/call-ins", response_model=schemas.Notification,
              dependencies=[Depends(manager_only)])
 def post_call_in(notice_id: str, body: schemas.CallInIn, db: Session = Depends(get_db)):
+    if not settings.staffing_feature:
+        raise HTTPException(403, "Staffing and call-ins are disabled")
     try:
         return call_in(db, notice_id, body)
     except NoDecisionError as e:
@@ -219,7 +223,7 @@ def team(supervisor_id: str | None = None, v: Viewer = Depends(require("supervis
     rows = (db.scalars(select(models.Notification).where(models.Notification.notice_id == notice.id)).all()
             if notice else _transient(live_plan(db, facility)))
     names = {m.id: m.name for m in members}
-    mine = [n for n in rows if n.employee_id in ids and n.message_type not in ("supervisor_summary", "access_list",
+    mine = [n for n in rows if n.employee_id in ids and (settings.staffing_feature or n.message_type != "call_in") and n.message_type not in ("supervisor_summary", "access_list",
                                                                                  "staffing_alert")]
     out = [schemas.TeamNotification(
         notification_id=n.id, employee_id=n.employee_id, name=names[n.employee_id], message_type=n.message_type,
@@ -256,7 +260,7 @@ def my_status(v: Viewer = Depends(require("employee")), db: Session = Depends(ge
                              models.Notice.archived_at.is_(None), models.Notification.archived_at.is_(None),
                              models.Notice.operating_date == notice.operating_date,
                              models.Notification.employee_id == person.id, models.Notification.sent_at.is_not(None),
-                             models.Notification.message_type.in_(["action_required", "fyi", "call_in"]))
+                             models.Notification.message_type.in_(["action_required", "fyi", "call_in"] if settings.staffing_feature else ["action_required", "fyi"]))
                       .order_by(models.Notification.sent_at.desc()).limit(1))
     if n is not None:
         own = schemas.Notification.model_validate(n).model_copy(update={"reason_text": n.audience_text})

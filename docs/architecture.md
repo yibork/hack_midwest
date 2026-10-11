@@ -1,5 +1,21 @@
 # Architecture
 
+## Staffing switch and relocated live evidence
+
+`STAFFING_FEATURE=0` is the default. Coverage calculation, shortfall alerts, manager call-ins,
+coverage UI and staffing memo/digest lines are disabled. Existing code and historical records
+remain intact; `STAFFING_FEATURE=1` restores the feature. Essential-personnel impact, access,
+acknowledgment and escalation are independent and unchanged. The people summary reports
+must-act, FYI and emergency staff reporting counts. Coverage never sets confidence or the clock.
+
+Relocated KC-only feeds and synthetic home zones carry `value.applicable=false`; they are
+retained for provenance but excluded from confidence/sufficiency, not represented as clear.
+Applicable failures still lower confidence. NOAA selects the nearest gauge within 40 km with
+defined flood categories; absent coverage is explicit, while failed lookups remain unknown.
+Live-alert jobs check hourly through the computed decision deadline and at each alert expiry,
+using deterministic investigation tools without inference. Expiry checks run even when the
+saved target day has passed. Jobs are idempotent across revisions and appear as next re-evaluation.
+
 ## Nationwide air quality
 
 `sources/airnow.py` collects EPA AirNow current observations and target-day forecasts at

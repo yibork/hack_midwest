@@ -81,6 +81,7 @@ class Settings:
 
     # Shortens ack reminder/escalation timers to 1/2/3 minutes and enables /api/demo/* simulation.
     demo_mode: bool = field(default_factory=lambda: _pick("DEMO_MODE", default="0").lower() in ("1", "true", "yes"))
+    staffing_feature: bool = field(default_factory=lambda: _pick("STAFFING_FEATURE", default="0").lower() in ("1", "true", "yes"))
     # Base URL for links in messages (ack links). In production set it to the public URL.
     public_base_url: str = field(default_factory=lambda: _pick("PUBLIC_BASE_URL", default="http://localhost:8000").rstrip("/"))
     # Local signals layer (agents/local): roads, schools, public safety, news. Tests turn it off.

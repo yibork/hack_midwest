@@ -11,18 +11,18 @@ from .db import utcnow
 from .rules.engine import evaluate
 from .sources import local_signals as ls, nws
 
-UNAVAILABLE = "not available for this location"
+UNAVAILABLE = "not applicable at this location"
 
 
 def local_feeds(facility, sources=None):
     """KC-specific adapters have no verified mapping for a relocated synthetic site."""
-    return [ls.FeedResult(source=s, status="unknown", error=UNAVAILABLE + "; KC source coverage is not configured")
+    return [ls.FeedResult(source=s, status="not_applicable", error=UNAVAILABLE + "; Kansas City-only coverage")
             for s in (ls.sources() if sources is None else sources)]
 
 
 def unknown(kind, source="nws"):
     return schemas.Evidence(id=uuid.uuid4().hex, source=source, kind=kind, status="unknown",
-        value={"error": UNAVAILABLE, "authority": "official_federal"}, retrieved_at=utcnow(),
+        value={"error": UNAVAILABLE, "authority": "official_federal", "applicable": False}, retrieved_at=utcnow(),
         relevance_note=UNAVAILABLE + "; original KC home zones/gauge are not relocated observations.")
 
 
@@ -78,16 +78,19 @@ def evaluate_live(db, facility, alert=None, scan_evidence=None):
             source_time=alert.sent, retrieved_at=scan.retrieved_at, valid_until=scan.valid_until,
             url=scan.url, snapshot_hash=scan.snapshot_hash, status="ok",
             relevance_note="Real NWS alert selected from the live national scan; synthetic facility at its polygon/zone centroid."))
-    evidence += [unknown("home_zone_alerts"), unknown("river_categories", "nwps")]
+    evidence += [unknown("home_zone_alerts")]
     evidence += [feed.to_evidence() for feed in local_feeds(facility)]
     local = now.astimezone(ZoneInfo(facility.timezone))
     # Real clock and calendar windows. Pick onset's day (or today for ongoing alerts), never fake 04:00.
     day = max(local.date(), nws.parse_dt(alert.onset).astimezone(local.tzinfo).date()) if alert else local.date()
     from .sources import airnow
     evidence += airnow.collect(facility, day, now=now)
+    from .sources import nwps
+    from .rules.engine import compute_windows, load_policy
+    evidence += nwps.collect_nearby(facility, compute_windows(schemas.Facility.model_validate(facility), now, load_policy(), day))
     services.store_evidence(db, evidence, facility.id, eid)
     label = "Real NWS alert, live · Synthetic facility relocated to " + facility.address.removeprefix("Synthetic facility relocated to ") + " for demonstration"
-    note = f"DEMO: {day} treated as a workday at the relocated site; real current clock and facility windows. Alerts outside those windows do not trigger a posture."
+    note = f"Treated as a workday for demonstration. Target day: {day}; real current clock and facility windows. Alerts outside those windows do not trigger a posture."
     result = evaluate(schemas.Facility.model_validate(facility), evidence, now, operating_date=day,
                       target_mode="demo_workday", target_note=note)
     result.evaluation_id, result.status = eid, "final"
@@ -104,4 +107,6 @@ def evaluate_live(db, facility, alert=None, scan_evidence=None):
         "office": facility.nws_office, "timezone": facility.timezone, "evidence_ids": rec.evidence_ids,
         "synthetic_access_routes": True, "local_coverage": UNAVAILABLE}, facility_id=facility.id, evaluation_id=eid)
     db.commit()
+    from . import scheduler
+    scheduler.schedule_live_alert(db, facility, rec, evidence, now=now)
     return rec

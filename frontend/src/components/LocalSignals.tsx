@@ -69,9 +69,11 @@ function summarize(agent: string, facts: LocalFactValue[]): string {
 
 /** Recommendation page: local signals grouped by agent, with counts and the facts. */
 export default function LocalSignals({ evidence, tz }: { evidence: Evidence[]; tz: string }) {
+  const excluded = evidence.filter(e => e.kind === 'local_feed' && (e.value as {applicable?: boolean})?.applicable === false);
+  evidence = evidence.filter(e => (e.value as {applicable?: boolean})?.applicable !== false);
   const facts = evidence.map(fact).filter((f): f is LocalFactValue => f !== null);
   const feeds = evidence.filter((e) => e.kind === "local_feed");
-  if (!feeds.length && !facts.length) return null;
+  if (!feeds.length && !facts.length) return excluded.length ? <p className="text-sm text-slate-600">{excluded.length} Kansas City-only sources not applicable here</p> : null;
   const agents = [...new Set([...feeds.map((e) => (e.value as { agent: string }).agent), ...facts.map((f) => f.agent)])];
   const failed = feeds.filter((e) => e.status !== "ok");
   const results = evidence.filter((e) => e.kind === "local_agent_result")

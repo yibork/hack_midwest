@@ -78,7 +78,7 @@ export default function NoticePanel({ decision, tz, onSending }: { decision: Dec
         {sent && <a className="mt-3 block underline" href={`/decisions/${decision.id}/memo`} target="_blank" rel="noreferrer">View decision memo</a>}
       </Card>
 
-      <Disclosure title="Staffing and call-ins" summary={`${d.coverage.filter(c => c.status !== 'covered').length} functions need attention`}><Staffing detail={d} onChanged={detail.reload} /></Disclosure>
+      {d.staffing_feature && <Disclosure title="Staffing and call-ins" summary={`${d.coverage.filter(c => c.status !== 'covered').length} functions need attention`}><Staffing detail={d} onChanged={detail.reload} /></Disclosure>}
       <Disclosure title="Recipient details" summary={`${d.notifications.filter(n => n.included).length} included · delivery channels, waves and reasons`}><Recipients detail={d} tz={tz} /></Disclosure>
     </>
   );

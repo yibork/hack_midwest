@@ -9,6 +9,7 @@ export default function RecommendationHero({rec, actions}: {rec: RecommendationD
   return <Card className={`posture-hero posture-${rec.posture}`}>
     <div className="text-sm text-slate-600">Recommendation for {new Date(`${rec.operating_date}T12:00:00`).toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"})}</div>
     <div className="mt-2 hero-label">{postureLabel(rec.posture)}</div>
+    {rec.target_mode === 'demo_workday' && <p className="text-sm text-slate-600">Treated as a workday for demonstration</p>}
     <p className="mt-2">{why}</p>
     <div className="hero-metrics">
       <div><span className="metric-label">Decision deadline</span><strong>{rec.decide_by ? fmtDateTime(rec.decide_by, tz) : "No action needed"}</strong></div>

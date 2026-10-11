@@ -164,12 +164,12 @@ def decorate_facts(db, facility, rec, facts, *, evidence=None, rule_map=None):
 def manager_digest(plan, hazard, sent=0, acknowledged=0):
     lines = [f"{short_name_for_plan(plan)}: {ins.posture_label(plan.ctx.posture)}, {msg.fmt_date(plan.ctx.operating_date, 'en')}. {hazard}.",
              f"Sent: {sent}. Acknowledged: {acknowledged}."]
-    shortfalls = [c for c in plan.coverage if c.status != "covered"]
+    shortfalls = [c for c in plan.coverage if c.status != "covered"] if settings.staffing_feature else []
     for c in shortfalls:
         backup = f" Suggested backup: {c.backups[0].name} - call them in on the Decide page." if c.backups else " No eligible backup; arrange coverage."
         have = len(c.available) + sum(x.acknowledged for x in c.called_in)
         lines.append(f"{c.name} needs {c.required} on site; {have} available.{backup}")
-    if not shortfalls:
+    if settings.staffing_feature and not shortfalls:
         lines.append("All critical functions covered.")
     lines.append(f"Review and decide: {settings.public_base_url}/decide")
     return "\n".join(lines)
@@ -225,7 +225,7 @@ def create_notice(db: Session, decision: models.Decision, now: datetime | None =
         keeper.notify_by = min((item.notify_by for item in items if item.notify_by), default=None)
         first = next((p.facts for p in plan.planned if p.facts), None)
         hazard = f"{first.hazard_source}: {first.hazard}" + (f" until {first.hazard_end}" if first.hazard_end else "") if first else "Facility decision"
-        keeper.subject = "Office decision - delivery and staffing summary"
+        keeper.subject = "Office decision - delivery summary"
         keeper.message = manager_digest(plan, hazard) + ("\n" + first.footer if first and first.footer else "")
         keeper.message_type, keeper.drafted_by = "supervisor_summary", "template"
         personal = next((p for p in plan.planned if p.employee.id == manager and p.facts), None)
@@ -325,6 +325,7 @@ def send_notice(db: Session, notice_id: str) -> list[models.Notification]:
             raise NoDecisionError(f"no decision for notice {notice_id}; nothing is sent without an approval record")
         rows = list(db.scalars(select(models.Notification).where(models.Notification.notice_id == notice_id)))
         todo = sorted((n for n in rows if n.included and n.sent_at is None and n.message
+                       and (settings.staffing_feature or n.message_type not in {"staffing_alert", "call_in"})
                        and not (n.channel_results and all(v.get("status") == "simulated" for v in n.channel_results.values()))),
                       key=lambda n: (WAVE_ORDER.get(n.wave, 3), n.notify_by.timestamp() if n.notify_by else float("inf"), n.id))
         people = {e.id: e for e in db.scalars(select(models.Employee).where(
@@ -375,6 +376,8 @@ def send_notice(db: Session, notice_id: str) -> list[models.Notification]:
 
 def call_in(db: Session, notice_id: str, body: schemas.CallInIn, now: datetime | None = None) -> models.Notification:
     """The manager picked a backup for a shortfall: send a call-in requiring acknowledgment."""
+    if not settings.staffing_feature:
+        raise CallInError("Staffing and call-ins are disabled")
     if db.get(models.Notice, notice_id) and db.get(models.Notice, notice_id).archived_at:
         raise NoDecisionError("This demo notice was reset")
     notice = db.get(models.Notice, notice_id)

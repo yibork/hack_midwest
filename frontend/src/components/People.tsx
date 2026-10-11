@@ -59,14 +59,15 @@ export function CoverageStrip({ coverage }: { coverage: CoverageItem[] }) {
 export function PeopleStrip({ people }: { people: PeopleSummary }) {
   return (
     <div className="space-y-2">
-      <CoverageStrip coverage={people.coverage} />
+      {people.staffing_feature && <CoverageStrip coverage={people.coverage} />}
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-700">
         <span><strong>{people.action_required}</strong> must act</span>
         <span><strong>{people.fyi}</strong> FYI</span>
+        {!people.staffing_feature && <span><strong>{people.emergency_staff_reporting ?? 0}</strong> emergency staff reporting</span>}
         {!!people.supervisor_suggestion_count && <span>{people.supervisor_suggestion_count} supervisor suggestions · accommodation on file / commute exposure</span>}
-        <span className={people.exposed_count ? "font-semibold text-amber-800" : ""} title={EXPOSURE_RULE}>
+        {people.staffing_feature && <span className={people.exposed_count ? "font-semibold text-amber-800" : ""} title={EXPOSURE_RULE}>
           {people.exposure_status === 'unknown' ? people.exposure_note ?? 'Home-zone exposure: not available for this location' : <><strong>{people.exposed_count}</strong> with an exposed commute</>}
-        </span>
+        </span>}
         {people.minor_commute_count > 0 && (
           <span className="cursor-help text-slate-600 underline decoration-dotted" title={EXPOSURE_RULE}>
             <strong>{people.minor_commute_count}</strong> commute{people.minor_commute_count === 1 ? "" : "s"} pass

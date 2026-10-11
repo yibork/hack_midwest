@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import models, record
+from .config import settings
 from .db import get_db, utcnow
 from .roles import audit_reader, viewer, Viewer
 from .services import change_rule_id
@@ -24,6 +25,9 @@ def public_text(value):
     """Free text may mention private needs; omit that field rather than disclose it.
     No accommodation, home-location, message or per-person instruction fields are read."""
     text = str(value if value is not None else "Not recorded")
+    if not settings.staffing_feature:
+        text = " ".join(sentence for sentence in re.split(r"(?<=[.!?])\s+", text)
+                        if not re.search(r"shortfall|staffing|call[- ]ins?|suggested backup|needs \d+ on site", sentence, re.I))
     private_check = re.sub(r"accommodation(?:_| )on(?:_| )file", "", text, flags=re.I)
     if re.search(r"accommodation|mobility|wheelchair|screen.?reader|large.?text|early.?notice|text.?only|plain.?language|medical|disabilit|diagnos", private_check, re.I):
         return "Private employee details omitted from this memo."
@@ -127,7 +131,8 @@ def render(db, decision):
         investigation_rows.append([when(inv.created_at), esc(inv.question), answer, esc(result.get("source_label") or "Pending at decision time")])
     sections += ["<h2>Investigations and answers</h2>", table(["Requested", "Question", "Answer", "Source label"], investigation_rows) if investigation_rows else "<p>No investigations recorded before this decision.</p>"]
     notice_ids = db.scalars(select(models.Notice.id).where(models.Notice.decision_id == decision.id)).all()
-    notes = db.scalars(select(models.Notification).where(models.Notification.notice_id.in_(notice_ids))).all()
+    notes = [n for n in db.scalars(select(models.Notification).where(models.Notification.notice_id.in_(notice_ids)))
+             if settings.staffing_feature or n.message_type not in {"staffing_alert", "call_in"}]
     included = [n for n in notes if n.included]
     reasons = Counter(code for n in included for code in n.reason_codes)
     excluded_reasons = Counter(code for n in notes if not n.included for code in n.reason_codes)
@@ -140,6 +145,8 @@ def render(db, decision):
               "Escalation level 1": sum(n.escalation_level == 1 for n in included), "Escalation level 2": sum(n.escalation_level >= 2 for n in included),
               "Call-ins": sum(n.message_type == "call_in" for n in included)}
     counts.update({f"Delivery: {k}": v for k, v in delivery.items()})
+    if not settings.staffing_feature:
+        counts.pop("Call-ins", None)
     counts.update({f"Reason code: {k.replace('_', ' ')}": v for k, v in reasons.items()})
     counts.update({f"Not notified, reason code: {k.replace('_', ' ')}": v for k, v in excluded_reasons.items()})
     counts.update({f"Wave: {k}": v for k, v in waves.items()})

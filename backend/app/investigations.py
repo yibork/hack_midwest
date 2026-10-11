@@ -66,6 +66,7 @@ def reserve_model_call(key):
 
 
 def suggestions(rec, evidence):
+    evidence = [e for e in evidence if not isinstance(e.value, dict) or e.value.get("applicable") is not False]
     actions = []
     def add(action, label):
         if not any(c["action"] == action for c in actions):
@@ -195,8 +196,7 @@ def run_check(action, state):
         eid = state["evaluation_id"]
         if action == "check_river":
             if fac.demo_origin_id:
-                from .demo_location import unknown
-                services.store_evidence_now([unknown("river_categories", "nwps")], fac.id, eid)
+                services.store_evidence_now(nwps.collect_nearby(fac, windows), fac.id, eid)
             else:
                 services.store_evidence_now(nwps.collect(windows), fac.id, eid)
         elif action == "recheck_now":
@@ -204,6 +204,8 @@ def run_check(action, state):
             services.store_evidence_now(airnow.collect(fac, rec.operating_date), fac.id, eid)
             weather_agent.fetch_alerts(fac, eid)
             weather_agent.fetch_forecast(fac, eid, operating_date=rec.operating_date)
+            if fac.demo_origin_id:
+                services.store_evidence_now(nwps.collect_nearby(fac, windows), fac.id, eid)
             if people:
                 exposure.collect(fac.id, eid, people)
                 lp = local_run.LocalPass(fac, eid, rec.operating_date, people, None, use_models=False)
@@ -465,6 +467,8 @@ def refresh_expired(evidence, state):
     saved = [schemas.Evidence.model_validate(e) for e in evidence]
     sources = {s.id: s for s in local_signals.sources()}
     def expired(e):
+        if isinstance(e.value, dict) and e.value.get("applicable") is False and e.source != "nwps":
+            return False
         if e.scenario_kind in {"simulated", "replay"}:
             return False  # replay/simulation may never fetch live evidence
         if e.source not in {"nws", "nwps", "local", "airnow"}:
@@ -514,7 +518,7 @@ def refresh_expired(evidence, state):
         matches = [n for n in new if (n.source == e.source and n.kind == e.kind and e.source != "local") or
                    (e.source == "local" and n.kind == "local_feed" and isinstance(n.value, dict) and
                     n.value.get("source_id") == source_id)]
-        if matches and any(n.status == "ok" for n in matches):
+        if matches and any(n.status == "ok" or isinstance(n.value, dict) and n.value.get("applicable") is False for n in matches):
             refreshed_count += 1
             continue
         if e.status == "unknown":
@@ -587,6 +591,9 @@ def revise(db, investigation, before, evidence, *, pending=False):
         record.append(db, "recommendation_revised", {"previous_recommendation_id": before.id, "recommendation_id": row.id,
                       "diff": row.revision_diff}, facility_id=before.facility_id, evaluation_id=investigation.id)
     db.commit()
+    if not pending and before.scenario_context and before.scenario_context.get("live_relocated"):
+        from . import scheduler
+        scheduler.schedule_live_alert(db, facility, row, evidence)
     return row
 
 
@@ -607,6 +614,9 @@ def finish_revision(db, investigation, before, pending, evidence):
     record.append(db, "recommendation_revised", {"previous_recommendation_id": before.id, "recommendation_id": pending.id,
                   "diff": pending.revision_diff}, facility_id=before.facility_id, evaluation_id=investigation.id)
     db.commit()
+    if before.scenario_context and before.scenario_context.get("live_relocated"):
+        from . import scheduler
+        scheduler.schedule_live_alert(db, facility, pending, evidence)
     return pending
 
 

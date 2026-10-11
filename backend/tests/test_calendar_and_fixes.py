@@ -119,7 +119,10 @@ def test_weekend_closure_only_affects_the_weekend_crew():
     assert sum(1 for i in plan.impacts if "DAY_OFF" in i.codes) > 20
 
 
-def test_critical_functions_follow_their_own_calendar():
+def test_critical_functions_follow_their_own_calendar(monkeypatch):
+    from dataclasses import replace
+    from app.notify import plan as plan_module
+    monkeypatch.setattr(plan_module, "settings", replace(plan_module.settings, staffing_feature=True))
     sat = {c.code: c for c in _plan(_next(5), posture="normal").coverage}
     assert sat["animal_care"].required == 2 and sat["animal_care"].status == "covered"  # 7-day weekend crew
     assert sat["it_ops"].required == 0  # Mon-Fri function

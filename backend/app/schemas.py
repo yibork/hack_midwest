@@ -377,6 +377,8 @@ class DecisionClock(BaseModel):
 
 
 class PeopleSummary(BaseModel):
+    staffing_feature: bool = False
+    emergency_staff_reporting: int = 0
     supervisor_suggestion_count: int = 0
     exposure_status: Literal["current", "unknown"] = "current"
     exposure_note: str | None = None
@@ -395,6 +397,7 @@ class PeopleSummary(BaseModel):
 
 
 class NoticeDetail(BaseModel):
+    staffing_feature: bool = False
     notice: Notice
     previous: Notice | None = None
     clock: DecisionClock

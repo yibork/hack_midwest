@@ -14,6 +14,7 @@ from app.config import settings
 from app.agents import message_agent, weather_agent
 from app.main import app
 from app.notify import escalation, exposure, notices
+from app.notify import plan as plan_module
 from app import demo_location, memo
 from app.sources import nws, local_signals
 from app.rules.engine import evaluate, load_policy
@@ -26,8 +27,8 @@ def demo_db(tmp_path, monkeypatch):
     monkeypatch.setattr(database, "engine", engine)
     for module in (database, seed, record, services, investigations, exposure, escalation, message_agent, weather_agent):
         monkeypatch.setattr(module, "SessionLocal", factory)
-    config = replace(settings, demo_mode=True, demo_topic_suffix="test-suite", snapshot_dir=tmp_path / "snapshots")
-    for module in (demo, seed, record, investigations, exposure, escalation, notices, api_routes):
+    config = replace(settings, demo_mode=True, staffing_feature=True, demo_topic_suffix="test-suite", snapshot_dir=tmp_path / "snapshots")
+    for module in (demo, seed, record, investigations, exposure, escalation, notices, api_routes, plan_module):
         monkeypatch.setattr(module, "settings", config)
     seed.seed()
     with factory() as db:
@@ -169,6 +170,8 @@ def test_national_zone_fallback_is_allowlisted_and_saved(demo_db, monkeypatch):
 
 
 def relocate_fixture(db, monkeypatch):
+    from app.sources import nwps
+    monkeypatch.setattr(nwps, "collect_nearby", lambda *a, **k: [])
     now = database.utcnow().replace(hour=16, minute=0, second=0, microsecond=0)
     monkeypatch.setattr(demo_location, "utcnow", lambda: now)
     alert = schemas.NationalAlert(id="real-warning", event="High Wind Warning", severity="Severe", certainty="Observed",
@@ -230,9 +233,9 @@ def test_relocated_missing_sources_remain_unknown_on_refresh(demo_db, monkeypatc
     rec, _ = relocate_fixture(demo_db, monkeypatch)
     evidence = services.recommendation_detail(demo_db, rec).evidence
     missing = [e for e in evidence if e.kind in {"home_zone_alerts", "local_feed", "river_categories"}]
-    assert missing and all(e.status == "unknown" and "not available for this location" in e.relevance_note for e in missing)
-    assert rec.confidence == "low"
-    assert any("not available for this location" in r for r in rec.confidence_reasons)
+    assert missing and all(e.status == "unknown" and e.value.get("applicable") is False for e in missing)
+    assert any("Kansas City-only sources not applicable here" in r for r in rec.confidence_reasons)
+    assert not any("KC source coverage" in r for r in rec.confidence_reasons)
     monkeypatch.setattr(nws, "get_active_alerts_for_zone", lambda *a, **k: pytest.fail("KC home-zone request at relocated site"))
     fresh = exposure.collect(rec.facility_id, uuid.uuid4().hex, [])
     assert fresh.status == "unknown" and "zones" not in fresh.value

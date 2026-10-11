@@ -331,7 +331,8 @@ def notifications(decision_id: str, db: Session = Depends(get_db)):
     notice = db.scalar(select(models.Notice).where(models.Notice.decision_id == decision_id))
     if notice is None:
         return []
-    return db.scalars(select(models.Notification).where(models.Notification.notice_id == notice.id)).all()
+    return [n for n in db.scalars(select(models.Notification).where(models.Notification.notice_id == notice.id))
+            if settings.staffing_feature or n.message_type not in {"staffing_alert", "call_in"}]
 
 
 @router.post("/decisions/{decision_id}/schedule-notify", status_code=202)

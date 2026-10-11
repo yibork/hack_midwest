@@ -127,6 +127,7 @@ class FeedResult:
             id=uuid.uuid4().hex, source="local", kind="local_feed",
             value={"source_id": s.id, "source_name": s.name, "agent": s.agent, "authority": s.authority,
                    "fetch_status": self.status, "error": self.error, "item_count": len(self.items),
+                   "applicable": self.status != "not_applicable",
                    "content_hash": self.content_hash,
                    "items": self.items},
             retrieved_at=self.retrieved_at, valid_until=self.retrieved_at + timedelta(minutes=s.refresh_minutes),

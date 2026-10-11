@@ -16,8 +16,11 @@
 #   operating_day    = commute start   .. departure end
 #
 # Source definitions are verified; posture mappings remain this prototype's facility policy.
-version: "1.0.3"
+version: "1.0.4"
 change_log:
+  - version: "1.0.4"
+    date: "2026-10-11"
+    changes: "Flood rules cite national NWS definitions and the facility's confirmed local office. Outside EAX, numeric wind cutoffs are facility choices; national Directive 10-515 is the fallback reference. Non-applicable coverage is excluded from confidence."
   - version: "1.0.3"
     date: "2026-10-11"
     changes: "Added supplementary AirNow AQI rules: supervisor accommodation suggestions at 101–150, telework at 151–200, closure at 201+. EPA categories are verified; these posture mappings are facility choices."
@@ -181,9 +184,14 @@ rules:
     posture: telework
     group: federal
     verified: true
-    citation: *eax
+    citation:
+      title: NWS Flood and Flash Flood Warning definitions
+      publisher: NOAA National Weather Service
+      url: https://www.weather.gov/safety/flood-watch-warning
+      section_or_page: "Flood Warning; Flash Flood Warning"
+      retrieved_at: "2026-10-11T06:59:35Z"
     justification: >
-      EAX flood warnings identify observed or expected flooding. Facility policy v1.0 chooses
+      NWS flood warnings identify imminent or occurring flooding. Facility policy v1.0 chooses
       telework to reduce travel exposure; eligibility and emergency duties remain subject to
       agency authorization, and a warning alone does not prove the building is flooded.
 

@@ -80,7 +80,7 @@ def run(db, row, rec):
             step("NWS employee home zones", lambda: exposure.collect(fac.id, row.id, people, save_raw=True))
             step("EPA AirNow air quality", lambda: save(airnow.collect(fac, rec.operating_date)))
             from .demo_location import unknown, local_feeds
-            step("NOAA KCDM7 river gauge", lambda: save([unknown("river_categories", "nwps")] if fac.demo_origin_id else nwps.collect(windows)))
+            step("Nearby NOAA river gauge" if fac.demo_origin_id else "NOAA KCDM7 river gauge", lambda: save(nwps.collect_nearby(fac, windows) if fac.demo_origin_id else nwps.collect(windows)))
             fresh += weather_agent.evidence_for(row.id)
             products = []
             def fetch_products():
@@ -102,7 +102,7 @@ def run(db, row, rec):
             for feed in feeds:
                 prior = old_feeds.get(feed.source.id)
                 changed = prior is None or prior.value.get("content_hash") != feed.content_hash
-                status = "failed" if feed.status != "ok" else "new" if prior is None else "changed" if changed else "current"
+                status = "not applicable" if feed.status == "not_applicable" else "failed" if feed.status != "ok" else "new" if prior is None else "changed" if changed else "current"
                 checks.append({"source": feed.source.name, "status": status})
                 save([feed.to_evidence()])
                 record.append(db, "evidence_sweep.source_refreshed", {"source": feed.source.id, "status": status}, facility_id=fac.id, evaluation_id=row.id)

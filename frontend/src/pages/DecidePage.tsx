@@ -55,7 +55,7 @@ function DecideFlow({ rec: initial }: { rec: RecommendationDetail }) {
         <ol aria-label="Decision progress" className="flex flex-wrap gap-3 rounded border bg-white p-3">{['Review', 'Approve or override', 'Send now or schedule'].map((label,index) => <li key={label} aria-current={step === index+1 ? 'step' : undefined} className={step === index+1 ? 'font-bold text-blue-700' : 'text-slate-600'}>{index+1} · {label}{index < 2 ? ' →' : ''}</li>)}</ol>
 
         <RecommendationHero rec={rec} actions={<Link className="text-sm underline" to={rec.facility.temporary ? "/national" : `/facility?facility=${rec.facility_id}`}>Review full evidence</Link>} />
-        <Card title="Evidence and staffing"><details><summary>Why this recommendation</summary><p className="mt-2 text-sm text-slate-700">{humanText(rec.rationale)}</p></details>
+        <Card title="Review the evidence"><details><summary>Why this recommendation</summary><p className="mt-2 text-sm text-slate-700">{humanText(rec.rationale)}</p></details>
           {rec.people && <div className="mt-3"><PeopleStrip people={rec.people} /></div>}</Card>
 
         {rec.posture === 'normal' && (!rec.people || (rec.people.action_required + rec.people.fyi === 0 && !rec.people.supervisor_suggestion_count)) && <Card title="No notification needed"><p>Nobody needs to be notified for normal operations.</p>{health.data?.demo_mode && <p className="mt-2 text-sm">For a notification demo, override with a documented reason or choose the SIMULATED winter storm on the Facility page.</p>}</Card>}

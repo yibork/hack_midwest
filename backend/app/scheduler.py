@@ -45,6 +45,34 @@ def next_run(db, facility_id: str, operating_date: date) -> datetime | None:
         models.ScheduledJob.status == "pending").order_by(models.ScheduledJob.run_at).limit(1))
 
 
+def schedule_live_alert(db, facility, rec, evidence, *, now=None):
+    """Live alerts: deterministic hourly checks through the decision deadline, plus expiry."""
+    from .notify.notices import plan_for
+    from .sources.nws import parse_dt
+    now = now or utcnow()
+    deadline = plan_for(db, facility, rec, rec.posture).clock.at
+    times = []
+    at = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    while deadline and at <= deadline:
+        times.append(("live_alert_hourly", at))
+        at += timedelta(hours=1)
+    for ev in evidence:
+        if ev.kind == "active_alerts" and ev.status == "ok":
+            for alert in ev.value.get("alerts", []):
+                end = parse_dt(alert.get("ends") or alert.get("expires"))
+                if end and end > now:
+                    times.append(("live_alert_expiry", end))
+    for kind, at in times:
+        key = f"{facility.id}|{rec.operating_date}|{kind}|{at.isoformat()}"
+        if not db.get(models.ScheduledJob, key):
+            db.add(models.ScheduledJob(key=key, facility_id=facility.id, operating_date=rec.operating_date,
+                kind=kind, run_at=at, status="pending", result={"recommendation_id": rec.id}))
+    if times:
+        record.append(db, "scheduled.live_alert_checks", {"recommendation_id": rec.id,
+            "times": [{"kind": kind, "at": at} for kind, at in times]}, facility_id=facility.id)
+    db.commit()
+
+
 def tick(now: datetime | None = None) -> list[dict]:
     """Run every due job once. Returns their results (for tests and logs)."""
     from . import pipeline  # pipeline -> services -> scheduler: import at call time
@@ -57,7 +85,7 @@ def tick(now: datetime | None = None) -> list[dict]:
                          .order_by(models.ScheduledJob.run_at)).all()
         for job in due:
             facility = db.get(models.Facility, job.facility_id)
-            if facility is None or job.operating_date < now.astimezone(ZoneInfo(facility.timezone)).date():
+            if facility is None or (job.kind != "live_alert_expiry" and job.operating_date < now.astimezone(ZoneInfo(facility.timezone)).date()):
                 job.status, job.ran_at = "skipped", now
                 db.commit()
                 continue
@@ -70,7 +98,7 @@ def tick(now: datetime | None = None) -> list[dict]:
                         raise ValueError("No active manager-approved notice")
                     rows = send_notice(db, notice.id)
                     result = {"decision_id": decision.id, "notifications": len(rows)}
-                elif job.kind == "manager_recheck":
+                elif job.kind in {"manager_recheck", "live_alert_hourly", "live_alert_expiry"}:
                     from . import investigations, schemas
                     latest = db.scalar(select(models.Recommendation).where(
                         models.Recommendation.facility_id == facility.id,

@@ -50,6 +50,7 @@ def _link(v: dict) -> str:
 def apply(facility: Facility, evidence: list[Evidence], commute: tuple[datetime, datetime], weather_fired: bool,
           policy: dict, facility_county: str | None = None, home_counties: dict[str, int] | None = None) -> LocalOutcome:
     out = LocalOutcome()
+    evidence = [e for e in evidence if not isinstance(e.value, dict) or e.value.get("applicable") is not False]
     citation = policy.get("citation", "facility policy v1 (TODO: verify)")
     facts = [e for e in evidence if e.kind == "local_fact" and e.status == "ok" and isinstance(e.value, dict)]
 

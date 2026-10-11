@@ -75,6 +75,9 @@ export interface Decision {
 }
 
 export interface Citation {
+  local_office?: string;
+  local_office_url?: string;
+  criteria_scope?: string;
   title: string;
   publisher: string;
   url: string;
@@ -173,6 +176,8 @@ export interface CoverageItem {
 }
 
 export interface PeopleSummary {
+  staffing_feature?: boolean;
+  emergency_staff_reporting?: number;
   supervisor_suggestion_count?: number;
   exposure_status?: 'current' | 'unknown';
   exposure_note?: string | null;
@@ -287,6 +292,7 @@ export interface Notice {
 }
 
 export interface NoticeDetail {
+  staffing_feature?: boolean;
   notice: Notice;
   previous: Notice | null;
   clock: DecisionClock;

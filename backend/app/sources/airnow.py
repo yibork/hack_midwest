@@ -59,11 +59,13 @@ def _sanitize(value):
 
 
 def observation_time(row, facility_tz):
-    zone = str(row.get("localTimeZone") or "").strip()
-    tz = timezone(timedelta(hours=OFFSETS[zone])) if zone in OFFSETS else ZoneInfo(zone or facility_tz)
+    zone = str(row.get("localTimeZone") or "").strip().upper()
+    tz = timezone(timedelta(hours=OFFSETS[zone])) if zone in OFFSETS else ZoneInfo(facility_tz)
     day = date.fromisoformat(str(row["dateObserved"]).strip()[:10])
-    hour = int(row["hourObserved"])
-    return datetime(day.year, day.month, day.day, hour, tzinfo=tz).astimezone(timezone.utc)
+    hour = int(str(row["hourObserved"]).split(":")[0])
+    if not 0 <= hour <= 24:
+        raise ValueError("Invalid AirNow observation hour")
+    return (datetime(day.year, day.month, day.day, tzinfo=tz) + timedelta(hours=hour)).astimezone(timezone.utc)
 
 
 def collect(facility, target_day, *, now=None):
@@ -82,12 +84,26 @@ def collect(facility, target_day, *, now=None):
             raw = _fetch(endpoint + "?" + urlencode({**params, "API_KEY": settings.airnow_api_key}))
             # Remove credentials even if a provider echoes them into an error/discussion.
             sanitized = _sanitize(json.loads(raw))
-            if not isinstance(sanitized, list):
-                raise ValueError("Unexpected AirNow response")
             safe_bytes = json.dumps(sanitized, ensure_ascii=False, separators=(",", ":")).encode()
             ev.snapshot_hash = save_snapshot(safe_bytes)
             ev.saved_copy_hash, ev.saved_copy_kind = ev.snapshot_hash, "normalized"
             ev.value["saved_copy_note"] = "Provider JSON normalized and credential fields removed before hashing"
+            if isinstance(sanitized, dict) and "WebServiceError" in sanitized:
+                messages = sanitized["WebServiceError"]
+                detail = "; ".join(str(m.get("Message", "")) for m in messages if isinstance(m, dict)) if isinstance(messages, list) else str(messages)
+                ev.value["provider_error"] = safe_text(detail)[:500]
+                missing = "no observations" in detail.lower() or "no reporting area" in detail.lower()
+                if missing:
+                    ev.value.update(applicable=False, error="no monitor within 25 mi" if kind.endswith("current") else "no forecast reporting area at this location")
+                    result.append(ev)
+                    continue
+                raise ValueError(detail or "AirNow provider error")
+            if not isinstance(sanitized, list):
+                raise ValueError("Unexpected AirNow response: " + json.dumps(sanitized)[:300])
+            if not sanitized:
+                ev.value.update(applicable=False, error="no monitor within 25 mi")
+                result.append(ev)
+                continue
             rows = []
             for row in sanitized:
                 if not isinstance(row, dict):
@@ -102,7 +118,11 @@ def collect(facility, target_day, *, now=None):
                 aqi = row.get("aqi") if forecast else row.get("nowcastAQI")
                 if isinstance(aqi, bool) or not isinstance(aqi, (int, float)) or aqi < 0 or int(aqi) != aqi:
                     continue  # category-only or unavailable AQI is unknown, never zero/good
-                at = None if forecast else observation_time(row, facility.timezone)
+                try:
+                    at = None if forecast else observation_time(row, facility.timezone)
+                except (ValueError, KeyError, TypeError):
+                    ev.value.setdefault("parse_errors", []).append("Invalid observation date/hour; row not used")
+                    continue
                 category = next(name for limit, name in CATEGORIES if aqi <= limit)
                 rows.append({"pollutant": pollutant, "aqi": int(aqi), "category": category,
                     "provider_category": row.get("categoryName") if forecast else row.get("aqiCategoryName"),
@@ -120,10 +140,15 @@ def collect(facility, target_day, *, now=None):
                 if times:
                     ev.valid_until = min(now + FRESHNESS, max(times) + FRESHNESS)
         except Exception as exc:
-            # Never stringify an exception or an HTTP error body containing request details.
             code = exc.code if isinstance(exc, HTTPError) else None
+            detail = safe_text(str(exc))
+            if isinstance(exc, HTTPError):
+                try:
+                    detail = safe_text(exc.read(2000).decode("utf-8", errors="replace")) or detail
+                except Exception:
+                    pass
             ev.value["error"] = ("AirNow key not configured" if not settings.airnow_api_key else
-                                 f"AirNow unavailable ({type(exc).__name__}" + (f", HTTP {code}" if code else "") + ")")
+                                 f"AirNow unavailable ({type(exc).__name__}" + (f", HTTP {code}" if code else "") + "): " + detail[:500])
         result.append(ev)
     return result
 

@@ -11,7 +11,7 @@ export default function AirQuality({evidence, tz, targetDay}: {evidence: Evidenc
     <p className="font-semibold">Air quality — EPA AirNow · target day {targetDay}</p>
     {!rows.length && <p>Unknown — no AirNow evidence collected; not treated as good.</p>}
     {rows.map(e => {
-      const value = e.value as {pollutants?: Pollutant[]; error?: string};
+      const value = e.value as {pollutants?: Pollutant[]; error?: string; applicable?: boolean; provider_error?: string};
       const expired = !!e.valid_until && new Date(e.valid_until).getTime() < Date.now();
       return <div key={e.id} className="mt-1">
         <span className="font-semibold">{e.kind === 'air_quality_current' ? 'Current' : 'Daily forecast'}: </span>
@@ -19,7 +19,7 @@ export default function AirQuality({evidence, tz, targetDay}: {evidence: Evidenc
           {i > 0 ? ' · ' : ''}{p.pollutant} AQI {p.aqi} — {p.category}, {p.reporting_area}
           {p.observation_time ? ` (${fmtDateTime(p.observation_time, tz)})` : ` (${p.forecast_date})`}
           {(p.status !== 'ok' || e.status !== 'ok' || expired) && ' — stale / unknown; not used as current'}
-        </span>) : <span>Unknown — {value.error ?? 'no data'}; not treated as good.</span>}
+        </span>) : <span title={value.provider_error}>{value.applicable === false ? value.error : `Unknown — ${value.error ?? 'no data'}; not treated as good.`}</span>}
         <span className="ml-2"><SavedCopyLinks evidence={e} /></span>
       </div>;
     })}

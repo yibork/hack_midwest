@@ -124,6 +124,8 @@ def _parse_dt(s: str | None) -> datetime | None:
 # ---------------------------------------------------------------- evidence helpers
 
 def effective_status(ev: Evidence, now: datetime) -> str:
+    if isinstance(ev.value, dict) and ev.value.get("applicable") is False:
+        return "not_applicable"
     if ev.status == "ok" and ev.valid_until and ev.valid_until < now:
         return "stale"
     return ev.status
@@ -177,7 +179,10 @@ def _check_alert(rule: dict, clause: dict, alerts: list[dict], alerts_ev: Eviden
         if "urgency" in clause:
             criteria.append("urgency " + "/".join(clause["urgency"]))
         ends = _parse_dt(a.get("ends"))
-        span = f"{_fmt(onset.astimezone(w.open.tzinfo))}–{_fmt(ends.astimezone(w.open.tzinfo)) if ends else 'until further notice'}"
+        def alert_time(at):
+            local = at.astimezone(w.open.tzinfo)
+            return local.strftime("%a %b %d %I:%M %p %Z").replace(" 0", " ")
+        span = f"{alert_time(onset)} - {alert_time(ends) if ends else 'until further notice'}"
         return Trigger(
             rule_id=rule["id"], description=rule["description"],
             threshold=", ".join(criteria) + f" during {clause.get('window', 'operating_day').replace('_', ' ')}",
@@ -280,6 +285,23 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
     local = local_rules.apply(facility, evidence_list, (w.commute_start, w.commute_end), weather_fired,
                               policy.local or {}, area_v.get("facility_county"), area_v.get("home_counties"))
     triggers += local.triggers
+    # Location provenance comes from the confirmed /points office, never a guessed WFO.
+    point = by_kind.get("point")
+    office = (point.value.get("office") if point and isinstance(point.value, dict) else None) or facility.nws_office
+    for trigger in triggers:
+        if trigger.rule_id not in {"flood", "high_wind", "wind_advisory", "convective"}:
+            continue
+        citation = dict(trigger.citation) if isinstance(trigger.citation, dict) else {}
+        if office and office != "EAX" and trigger.rule_id in {"high_wind", "wind_advisory"}:
+            citation = dict(next(r["citation"] for r in policy.references if r["id"] == "nws_nonprecipitation"))
+            citation["criteria_scope"] = "National directive fallback; numeric commute cutoffs are facility policy choices, not verified local-office criteria."
+        elif office and office != "EAX" and trigger.rule_id == "convective":
+            citation = dict(next(r["citation"] for r in policy.rules if r["id"] == "convective"))
+            citation.update(title="NWS CAP alert definitions", publisher="NOAA National Weather Service",
+                url="https://www.weather.gov/media/alert/CAP_v12_guide_05-16-2017.pdf", section_or_page="NWS CAP event field")
+        if office:
+            citation.update(local_office=office, local_office_url=f"https://api.weather.gov/offices/{office}")
+        trigger.citation = citation
 
     # 2. Most restrictive posture wins.
     posture = max((t.posture for t in triggers), key=rank, default="normal")
@@ -300,6 +322,8 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
         if kind not in by_kind:
             lower(2, f"No {label} evidence was collected; conditions cannot be confirmed safe.")
     for ev in evidence_list:
+        if effective_status(ev, now) == "not_applicable":
+            continue
         if ev.source == "local":  # handled by rules/local.py (missing local data is noted, not "safe")
             continue
         st = effective_status(ev, now)
@@ -337,6 +361,9 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
     elif local.corroborations:
         reasons.append(local.corroborations[0])
     reasons += local.notes
+    excluded = sum(e.kind == "local_feed" and effective_status(e, now) == "not_applicable" for e in evidence_list)
+    if excluded:
+        reasons.append(f"{excluded} Kansas City-only sources not applicable here")
 
     # Facility choice: verified target-day forecaster context affects confidence,
     # never triggers/posture. Re-verify its quote against the saved source in pure code.
@@ -348,7 +375,7 @@ def evaluate(facility: Facility, evidence_list: list[Evidence], now: datetime,
         applies = point and isinstance(point.value, dict) and point.value.get("office") == "EAX"
         if product and applies and effective_status(product, now) == "ok" and effective_status(summary, now) == "ok":
             meaning = interpretation(summary.value, product, w.operating_date)
-            if meaning == "clear" and all(effective_status(e, now) == "ok" for e in evidence_list) and all(k in by_kind for k in REQUIRED_KINDS):
+            if meaning == "clear" and all(effective_status(e, now) in {"ok", "not_applicable"} for e in evidence_list) and all(k in by_kind for k in REQUIRED_KINDS):
                 if level > 0:
                     level -= 1
                 reason = "Verified EAX forecaster text explicitly states no significant hazards for the target day; confidence raised at most one level within the lead-time cap."

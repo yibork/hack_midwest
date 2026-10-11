@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
+from ..config import settings
 from ..access.policy import Access, access_for
 from ..staffing.coverage import CallIn, coverage
 from . import instructions as ins
@@ -89,6 +90,8 @@ class Plan:
             for c in i.public_codes:
                 counts[c] = counts.get(c, 0) + 1
         return schemas.PeopleSummary(
+            staffing_feature=settings.staffing_feature,
+            emergency_staff_reporting=sum(i.onsite_expected and i.employee.designation == "emergency" for i in self.impacts),
             supervisor_suggestion_count=sum(bool(i.supervisor_suggestion) for i in self.impacts),
             posture=self.ctx.posture, params=self.ctx.params(), clock=self.clock,
             exposed_count=self.exposed_count, coverage=self.coverage, counts_by_code=counts,
@@ -151,7 +154,10 @@ def build_plan(ctx: PostureContext, people: list[schemas.Employee], assignments:
     previous = previous or {}
     names = {**OTHER_OFFICES, **(facility_names or {})}
     impacts = compute_impacts(ctx, people, assignments, shifts, exposure, names)
-    cov = coverage(functions, impacts, ctx.posture, list(call_ins), day=ctx.operating_date, workday=ctx.workday)
+    if not settings.staffing_feature:
+        for imp in impacts:
+            imp.reasons = [r.replace("flagged in the staffing check", "supervisor should review the commute hazard") for r in imp.reasons]
+    cov = coverage(functions, impacts, ctx.posture, list(call_ins), day=ctx.operating_date, workday=ctx.workday) if settings.staffing_feature else []
     clock = decision_clock(impacts)
     rows = access_rows(ctx, impacts)
     local_now = ctx.now.astimezone(ctx.tz)
