@@ -1,4 +1,5 @@
 import { api } from "../api";
+import MapView from "../components/MapView";
 import { AuthorityBadge } from "../components/LocalSignals";
 import { Card, ErrorBox, Loading, fmtDateTime, useAsync } from "../components/ui";
 
@@ -9,6 +10,10 @@ const STATUS_STYLE: Record<string, string> = {
 /** The local-signals allowlist: what each agent may read, last fetch, and what was skipped and why. */
 export default function SourcesPage() {
   const data = useAsync(() => api.sources(), []);
+  const latest = useAsync(async () => {
+    const facilities = await api.facilities();
+    return facilities[0] ? api.latestRecommendation(facilities[0].id) : null;
+  }, []);
   if (data.loading) return <Loading />;
   if (data.error) return <ErrorBox error={data.error} onRetry={data.reload} />;
   const d = data.data!;
@@ -20,12 +25,13 @@ export default function SourcesPage() {
         Local agents read only these URLs (never links found inside them), respect robots.txt and each source's refresh
         interval, and keep at most a 300-character excerpt per item. A failed fetch is "unknown", never "no closures".
       </p>
+      {latest.data && <MapView recId={latest.data.id} title={`Map: facts from the latest evaluation (${latest.data.operating_date})`} />}
       <Card title={`Local signal sources (${d.sources.length})`}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500">
               <tr><th className="py-1 pr-3">Source</th><th className="py-1 pr-3">Agent</th><th className="py-1 pr-3">Authority</th>
-                <th className="py-1 pr-3">Last fetch</th><th className="py-1 pr-3">Status</th><th className="py-1 pr-3">Items</th><th className="py-1">Notes</th></tr>
+                <th className="py-1 pr-3">Last fetch</th><th className="py-1 pr-3">Status</th><th className="py-1 pr-3">Items</th><th className="py-1 pr-3">Location from</th><th className="py-1">Notes</th></tr>
             </thead>
             <tbody>
               {d.sources.map((s) => (
@@ -41,6 +47,11 @@ export default function SourcesPage() {
                   <td className="py-2 pr-3"><span className={`rounded px-2 py-0.5 text-xs font-bold ${STATUS_STYLE[s.status] ?? "bg-slate-100"}`}>{s.status}</span>
                     {s.error && <div className="text-xs text-red-700">{s.error}</div>}</td>
                   <td className="py-2 pr-3">{s.items_found ?? "—"}</td>
+                  <td className="py-2 pr-3 text-xs">
+                    <div className="font-semibold">{s.coordinates.geometry ?? "none"}</div>
+                    {s.coordinates.fields && s.coordinates.fields !== "none" && <div className="font-mono">{s.coordinates.fields}</div>}
+                    {s.coordinates.crs && <div className="text-slate-500">{s.coordinates.crs}</div>}
+                  </td>
                   <td className="py-2 text-xs text-slate-600">{s.robots}</td>
                 </tr>
               ))}

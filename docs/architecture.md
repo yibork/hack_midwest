@@ -113,3 +113,16 @@ The team's inference quota is shared: 60 requests/min across all endpoints.
   `scheduled.recheck`.
 - **Past days.** Jobs for days already gone are skipped.
 - **Decision record.** Each decision records the forecast lead time (hours to the commute window).
+
+## Map and privacy
+
+`GET /api/recommendations/{id}/map` (manager only) feeds the Leaflet map on the recommendation and
+Sources pages. It uses OpenStreetMap tiles, with attribution. It returns:
+- the facility and its access segments;
+- each local fact with its geometry, provenance, and links to the source and the saved copy
+  (`/api/snapshots/{hash}`, served as plain text, never rendered);
+- commute corridors aggregated into ~2 km cells.
+
+**Corridor privacy.** A cell is shown only if at least 3 corridors cross it. Cells within 3 km of
+any home are dropped, so no home location can be inferred. No API response contains home
+coordinates, and a test checks every role's endpoints for them.

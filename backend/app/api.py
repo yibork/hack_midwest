@@ -107,6 +107,31 @@ def get_recommendation(rec_id: str, db: Session = Depends(get_db)):
     return services.recommendation_detail(db, _get_or_404(db, models.Recommendation, rec_id))
 
 
+@router.get("/recommendations/{rec_id}/map")
+def recommendation_map(rec_id: str, db: Session = Depends(get_db)):
+    """Facility, access segments, aggregated commute corridors (no homes) and located local facts."""
+    from .mapdata import map_for
+
+    return map_for(db, _get_or_404(db, models.Recommendation, rec_id))
+
+
+@router.get("/snapshots/{digest}", include_in_schema=False)
+def snapshot(digest: str):
+    """The saved copy of a source response, as plain text (never rendered as HTML)."""
+    import re as _re
+
+    from fastapi.responses import PlainTextResponse
+
+    from .config import settings
+    if not _re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise HTTPException(404, "not found")
+    path = settings.snapshot_dir / f"{digest}.json"
+    if not path.exists():
+        raise HTTPException(404, "snapshot not found")
+    return PlainTextResponse(path.read_bytes().decode("utf-8", "replace"),
+                             headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox"})
+
+
 @router.post("/recommendations/{rec_id}/decision", response_model=schemas.Decision)
 def decide(rec_id: str, body: schemas.DecisionIn, db: Session = Depends(get_db)):
     rec = _get_or_404(db, models.Recommendation, rec_id)
@@ -172,6 +197,7 @@ def list_sources(db: Session = Depends(get_db)):
         rows.append({
             "id": src.id, "name": src.name, "url": src.url, "link": src.link, "kind": src.kind, "agent": src.agent,
             "authority": src.authority, "area": src.area, "refresh_minutes": src.refresh_minutes, "robots": src.robots,
+            "coordinates": src.coordinates,
             "last_fetch": e.retrieved_at if e else None, "status": v.get("fetch_status") if e else "never fetched",
             "items_found": v.get("item_count") if e else None, "error": v.get("error") if e else None,
         })

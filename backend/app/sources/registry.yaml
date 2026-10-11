@@ -48,6 +48,11 @@ sources:
       filters:
         - {path: MT, not_in: [CL]}  # commuter lots are not road conditions
         - {path: MSGL, county_suffix: [JACKSON, CLAY, PLATTE, CASS, RAY, LAFAYETTE]}
+    coordinates:   # where locations come from (inspected 2026-10-11)
+      fields: "GEOM.x (lon), GEOM.y (lat)"
+      geometry: point
+      crs: "WGS84 (GEOM.spatialReference.wkid = 4326)"
+      note: "MoDOT GEOM point (WGS84). The separate LinesV1.json has road polylines but no id to join them to messages, so points are used."
     robots: "robots.txt returns 404 (no restrictions). This JSON is what traveler.modot.org/map loads (the old /reportv2 page is 404). The site uses Incapsula bot protection but serves the feed to a plain client."
 
   - id: kandrive_events
@@ -68,11 +73,17 @@ sources:
       text: eventDescription.descriptionFull
       strip_html: true
       points: [[location.primaryPoint.lat, location.primaryPoint.lon], [location.secondaryPoint.lat, location.secondaryPoint.lon]]
+      geometry_url: "https://kstg.carsprogram.org/events_v1/api/eventMapFeatures"  # same allowlisted API; join on id
       published_epoch_ms: updateTime.time
       effective_epoch_ms: beginTime.time
       until_epoch_ms: endTime.time
       bbox: {lat: location.primaryPoint.lat, lon: location.primaryPoint.lon}
       # never stored: contacts (names and phone numbers of KDOT staff)
+    coordinates:
+      fields: "geometry from eventMapFeatures (joined on id); fallback location.primaryPoint / secondaryPoint {lat, lon}"
+      geometry: line (MultiLineString / LineString along the road; Point or MultiPoint for spot events)
+      crs: "WGS84 GeoJSON [lon, lat]"
+      note: "KanDrive event geometry from eventMapFeatures (GeoJSON, WGS84)"
     robots: "robots.txt 404 on kstg.carsprogram.org (no restrictions); kandrive.gov robots only disallows /images/. This is the public API the KanDrive app (Castle Rock CARS) calls."
 
   - id: kcscout_incidents
@@ -99,6 +110,11 @@ sources:
       category_path: EventType
       category_map: {Incident: incident, Scheduled: construction}
       points: [[Latitude, Longitude]]
+    coordinates:
+      fields: "Latitude, Longitude"
+      geometry: point
+      crs: "WGS84 (the KC Scout map transforms EPSG:4326 -> EPSG:3857 for display)"
+      note: "KC Scout Latitude/Longitude point (WGS84)"
     robots: "robots.txt 404 (no restrictions). The JSON the KC Scout map loads (POST, empty body); it has coordinates, unlike the IncidentViewer.aspx page (used before 2026-10-11)."
 
   # ------------------------------------------------------------------ schools
@@ -112,6 +128,10 @@ sources:
     area: {counties: [JACKSON], cities: [Kansas City]}
     refresh_minutes: 30
     parse: {parser: css, item: ".article-info", title: ".title a", link: ".title a@href", date: ".article-date", date_format: "%B %d, %Y", excerpt: ".content"}
+    coordinates:
+      fields: none
+      geometry: none
+      note: "No coordinates in this source (the page's embedded calendar JSON has latitude/longitude fields, always empty); a location is geocoded only if the text names a route and a cross street."
     robots: "Allowed for our UA and AI agents."
 
   - id: nkc_newsroom
@@ -124,6 +144,10 @@ sources:
     area: {counties: [CLAY], cities: [North Kansas City, Gladstone, Kansas City North]}
     refresh_minutes: 30
     parse: {parser: css, item: "article", title: ".fsTitle a", link: ".fsTitle a@href", date: "time@datetime", excerpt: ".fsSummary"}
+    coordinates:
+      fields: none
+      geometry: none
+      note: "No coordinates in this source; a location is geocoded only if the text names a route and a cross street."
     robots: "Allowed for our UA and AI agents."
 
   - id: hickman_mills_news
@@ -136,6 +160,10 @@ sources:
     area: {counties: [JACKSON], cities: [Kansas City south]}
     refresh_minutes: 30
     parse: {parser: css, item: "article", title: ".fsTitle a", link: ".fsTitle a@href", date: "time@datetime", excerpt: ".fsSummary"}
+    coordinates:
+      fields: none
+      geometry: none
+      note: "No coordinates in this source; a location is geocoded only if the text names a route and a cross street."
     robots: "Allowed for our UA and AI agents."
 
   - id: isd_news
@@ -148,6 +176,10 @@ sources:
     area: {counties: [JACKSON], cities: [Independence]}
     refresh_minutes: 30
     parse: {parser: css, item: "article", title: ".fsTitle a", link: ".fsTitle a@href", date: "time@datetime", excerpt: ".fsSummary"}
+    coordinates:
+      fields: none
+      geometry: none
+      note: "No coordinates in this source; a location is geocoded only if the text names a route and a cross street."
     robots: "Allowed for our UA and AI agents. Its RSS endpoint (/site/RSS.aspx) returns 403, so the news page is used."
 
   - id: kshb_school_closings
@@ -160,6 +192,10 @@ sources:
     area: {counties: *kc_counties}
     refresh_minutes: 15
     parse: {parser: page_text, region_start: "closings system", region_end: "KSHB 41 Weather", empty_markers: ["no active closings"]}
+    coordinates:
+      fields: none
+      geometry: none
+      note: "No coordinates in this source; a location is geocoded only if the text names a route and a cross street."
     robots: "Allowed for our UA (robots blocks only GPTBot). On 2026-10-10 the page said 'There are currently no active closings or delays', so the per-entry markup could not be inspected; the closings region is read as one page-level item."
 
   # ------------------------------------------------------------------ public safety / utilities
@@ -173,6 +209,10 @@ sources:
     area: {counties: [JACKSON, CLAY, PLATTE], cities: [Kansas City]}
     refresh_minutes: 30
     parse: {parser: css, item: ".tab-pane.active a[href*='/media/news-releases/']", title: "@text", link: "@href"}
+    coordinates:
+      fields: none
+      geometry: none
+      note: "No coordinates in this source; a location is geocoded only if the text names a route and a cross street."
     robots: "Allowed for our UA and AI agents (kcpd.org redirects to kcpolice.org). Releases carry no dates on the list page: items are marked undated."
 
   - id: evergy_outages
@@ -187,6 +227,10 @@ sources:
     current_state: true
     link: "https://outagemap.evergy.com/"
     parse: {parser: kubra_county, report: "366ea3b8-a72e-4eab-9fc8-eb8edcb0f249", min_customers_out: 200}
+    coordinates:
+      fields: none
+      geometry: none
+      note: "County-level counts only (no coordinates); shown in the list, not on the map."
     robots: "kubra.io robots.txt 404 (no restrictions); public, anonymous endpoints the outage map itself uses. Evergy is a private utility, filed as official_local for outage data only."
 
   # ------------------------------------------------------------------ news
@@ -200,6 +244,10 @@ sources:
     area: {counties: *kc_counties}
     refresh_minutes: 15
     parse: {parser: rss}
+    coordinates:
+      fields: none
+      geometry: none
+      note: "No coordinates in this source; a location is geocoded only if the text names a route and a cross street."
     robots: "Allowed for our UA (robots blocks only GPTBot)."
 
   - id: kcur_news
@@ -212,6 +260,10 @@ sources:
     area: {counties: *kc_counties}
     refresh_minutes: 15
     parse: {parser: rss}
+    coordinates:
+      fields: none
+      geometry: none
+      note: "No coordinates in this source; a location is geocoded only if the text names a route and a cross street."
     robots: "Allowed for our UA and AI agents."
 
   - id: kcbeacon_news
@@ -224,6 +276,10 @@ sources:
     area: {counties: *kc_counties}
     refresh_minutes: 30
     parse: {parser: rss}
+    coordinates:
+      fields: none
+      geometry: none
+      note: "No coordinates in this source; a location is geocoded only if the text names a route and a cross street."
     robots: "Allowed for our UA and AI agents. kcbeacon.org/feed/ now redirects here (the allowlist blocked the redirect until the URL was updated). Covers Kansas City and Wichita."
 
 # Researched and NOT used. The reason is shown on the Sources page.

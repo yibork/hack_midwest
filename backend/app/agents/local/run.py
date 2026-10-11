@@ -16,6 +16,7 @@ from ...routes import normalize_routes
 from ...services import store_evidence_now
 from ...sources import local_signals as ls
 from ..runtime import new_state
+from ...sources import geocode
 from . import coordinator, roads_cache, specialists
 from .prefilter import prefilter
 
@@ -42,7 +43,8 @@ def fact_evidence(fact: dict, item: dict, src: ls.Source, agent: str, how: str, 
         value={**fact, "agent": agent, "source_id": src.id, "source_name": src.name, "authority": src.authority,
                "title": item["title"], "link": item["link"], "reported_at": item.get("published_at"),
                "undated": bool(item.get("undated")), "extracted_by": how, "points": item.get("points") or [],
-               "category": item.get("category"), "active_since": item.get("active_since")},
+               "category": item.get("category"), "active_since": item.get("active_since"),
+               "snapshot_hash": item.get("snapshot_hash")},
         source_time=reported, retrieved_at=now, valid_until=now + timedelta(minutes=src.refresh_minutes),
         url=item["link"], relevance_note=f"{agent}: {fact['fact_type'].replace('_', ' ')}"
                                          f"{' on ' + routes if routes else ''}; {rel}, {where} ({src.name})",
@@ -80,7 +82,8 @@ class LocalPass:
         for r in results:
             for it in r.items:
                 by_agent.setdefault(r.source.agent, []).append(
-                    {**it, "source_name": r.source.name, "authority": r.source.authority})
+                    {**it, "source_name": r.source.name, "authority": r.source.authority,
+                     "snapshot_hash": r.snapshot_hash})
                 self.src_of[it["item_id"]] = r.source
         for agent in self.plan["agents"]:
             items = by_agent.get(agent, [])
@@ -126,6 +129,9 @@ class LocalPass:
             agent, self.work[agent], self.fac, self.commute_routes, new_state(**self.ids),
             settings.local_agent_timeout, use_model=agent in self.plan["model_agents"], geo=self.geo)
         items = {it["item_id"]: it for it in self.work[agent]}
+        for f in facts:
+            if f.get("location_provenance", "none") == "none" and not f.get("geometry"):
+                locate_by_text(f, items[f["item_id"]], self.geo)
         if agent == "roads" and how == "agent":
             roads_cache.put(self.roads_key, self.facility.id, self.day, self.roads_hashes,
                             [{"fact": f, "item": items[f["item_id"]], "source_id": self.src_of[f["item_id"]].id}
@@ -141,6 +147,29 @@ class LocalPass:
         out.append(agent_result("roads", "cache", None, [e["fact"] for e in hit.entries], hit.rejected, now,
                                 note=roads_cache.summary(hit)))
         return out
+
+
+def locate_by_text(fact: dict, item: dict, geo) -> None:
+    """No source coordinates: geocode "route + cross street" text (Nominatim, cached, 1 req/s).
+    A geocoded point may mark commute relevance; it never matches a facility access segment."""
+    query = geocode.query_for(f"{item['title']} {item.get('excerpt', '')}")
+    if not query:
+        fact["location_note"] = f"{fact.get('location_note') or 'No coordinates'}; no route + cross street to geocode"
+        return
+    hit = geocode.geocode(query)
+    if hit is None:
+        fact["location_note"] = f"No coordinates; geocoding '{query}' found nothing"
+        return
+    rel = geo.assess([(hit["lat"], hit["lon"])], fact["routes_mentioned"])
+    fact.update(
+        geometry={"type": "Point", "coordinates": [hit["lon"], hit["lat"]]},
+        location_provenance="geocoded_text",
+        location_note=f"Geocoded by OpenStreetMap Nominatim from '{query}' (approximate: street, not the exact spot)",
+        distance_km=rel.distance_km, matches_employee_commute_routes=rel.matches_employee_commute_routes,
+        affected_employee_ids=rel.affected_employee_ids,
+        # Approximate locations can't close a facility access route: commute relevance at most.
+        matches_facility_access_route=False, segments=[],
+        relevance="commute" if rel.affected_employee_ids else "not_relevant")
 
 
 def agent_result(agent, how, items_in, facts, rejected, now, note=None) -> schemas.Evidence:
@@ -175,7 +204,8 @@ def refresh_roads(facility: schemas.Facility, day, people: list[schemas.Employee
     items = []
     for r in results:
         for it in r.items:
-            items.append({**it, "source_name": r.source.name, "authority": r.source.authority})
+            items.append({**it, "source_name": r.source.name, "authority": r.source.authority,
+                          "snapshot_hash": r.snapshot_hash})
             lp.src_of[it["item_id"]] = r.source
     lp.roads_hashes = {r.source.id: r.content_hash for r in results}
     lp.roads_key = roads_cache.cache_key(facility.id, day, roads_cache.geometry_signature(lp.geo), lp.roads_hashes)

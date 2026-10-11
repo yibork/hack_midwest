@@ -31,6 +31,7 @@ import httpx
 import yaml
 
 from ..db import utcnow
+from ..geo import geometry_points, points_geometry
 from ..record import save_snapshot
 from ..schemas import Evidence
 
@@ -67,6 +68,7 @@ class Source:
     current_state: bool = False
     method: str = "GET"
     body: str | None = None
+    coordinates: dict = field(default_factory=dict)  # where locations come from (registry.yaml)
 
     def allowed(self, url: str) -> bool:
         return any(url.startswith(p) for p in self.allow_prefixes)
@@ -88,7 +90,7 @@ def sources(agent: str | None = None) -> list[Source]:
                      authority=s["authority"], area=s.get("area") or {}, refresh_minutes=int(s["refresh_minutes"]),
                      parse=s.get("parse") or {}, allow_prefixes=tuple(s.get("allow_prefixes") or [s["url"]]),
                      robots=s.get("robots", ""), link=s.get("link"), current_state=bool(s.get("current_state")),
-                     method=s.get("method", "GET"), body=s.get("body"))
+                     method=s.get("method", "GET"), body=s.get("body"), coordinates=s.get("coordinates") or {})
         if agent is None or src.agent == agent:
             out.append(src)
     return out
@@ -266,14 +268,17 @@ def make_item(src: Source, native: Any, title: str, text: str, link: str | None,
     return {"item_id": item_id(src.id, native or link or title), "source_id": src.id, "title": title,
             "link": link if (link and link.startswith("http")) else (src.link or src.url),
             "published_at": published.astimezone(timezone.utc).isoformat() if published else None,
-            "retrieved_at": retrieved.isoformat(), "excerpt": excerpt[:EXCERPT_CHARS], **extra,
+            "retrieved_at": retrieved.isoformat(), "excerpt": excerpt[:EXCERPT_CHARS],
+            "location_provenance": "none", "location_note": src.coordinates.get("note", "no coordinates in source"),
+            **extra,
             # When the condition began: its start time if stated, else when it was first reported.
             "active_since": extra.get("effective_from") or (published.astimezone(timezone.utc).isoformat() if published else None)}
 
 
 # ---------------------------------------------------------------- parsers
 
-def parse_json_list(src: Source, raw: bytes, retrieved: datetime) -> list[dict]:
+def parse_json_list(src: Source, raw: bytes, retrieved: datetime, geometries: dict | None = None) -> list[dict]:
+    """geometries: optional {id: GeoJSON geometry} from the source's geometry_url (KanDrive)."""
     cfg = src.parse
     data = json.loads(raw)
     rows = dig(data, cfg.get("items")) if cfg.get("items") else data
@@ -316,9 +321,13 @@ def parse_json_list(src: Source, raw: bytes, retrieved: datetime) -> list[dict]:
         for lat_path, lon_path in cfg.get("points", []):
             lat, lon = dig(row, lat_path), dig(row, lon_path)
             if isinstance(lat, (int, float)) and isinstance(lon, (int, float)) and (lat, lon) != (0, 0):
-                points.append([round(lat, 5), round(lon, 5)])
-        if points:
-            extra["points"] = points
+                points.append((round(lat, 5), round(lon, 5)))
+        geometry = (geometries or {}).get(str(dig(row, cfg.get("id")))) if cfg.get("id") else None
+        geometry = geometry or points_geometry(points)
+        if geometry:
+            extra.update(geometry=geometry, points=[list(p) for p in geometry_points(geometry)],
+                         location_provenance="source_coordinates",
+                         location_note=src.coordinates.get("note", "source coordinates"))
         native = dig(row, cfg.get("id")) if cfg.get("id") else hashlib.sha256(f"{title}|{text}".encode()).hexdigest()
         out.append(make_item(src, native, title, text, None, published, retrieved, **extra))
     return out
@@ -443,7 +452,16 @@ def fetch(src: Source, now: datetime | None = None) -> FeedResult:
             items, raw = fetch_kubra_county(src, now)
         else:
             raw = http_get(src, src.url, src.method)
-            items = PARSERS[src.parse["parser"]](src, raw, now)
+            if src.parse.get("geometry_url"):  # road geometry from the same allowlisted API, joined on id
+                try:
+                    feats = json.loads(http_get(src, src.parse["geometry_url"]))
+                    geoms = {str(f.get("id")): f.get("geometry") for f in feats if isinstance(f, dict)}
+                except Exception as e:  # noqa: BLE001 - fall back to the event's own points
+                    log.warning("geometry for %s unavailable: %s", src.id, e)
+                    geoms = {}
+                items = parse_json_list(src, raw, now, geoms)
+            else:
+                items = PARSERS[src.parse["parser"]](src, raw, now)
         result = FeedResult(src, "ok", _recent(src, items, now)[:MAX_ITEMS], retrieved_at=now,
                             snapshot_hash=save_snapshot(raw))
     except PermissionError as e:

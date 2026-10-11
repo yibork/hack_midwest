@@ -222,6 +222,18 @@ class RoadFactsCache(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
 
 
+class GeocodeCache(Base):
+    """Nominatim results (including "not found"), so each query is sent at most once."""
+
+    __tablename__ = "geocode_cache"
+    query: Mapped[str] = mapped_column(String(300), primary_key=True)
+    lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+    display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    provider: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class ScheduledJob(Base):
     """Automatic re-evaluations: 15:00 the day before the target day and 04:00 on it. They run the
     deterministic pipeline and call agents only if the result changed."""

@@ -66,6 +66,7 @@ def apply(facility: Facility, evidence: list[Evidence], commute: tuple[datetime,
     closing = [e for e in facts if e.value.get("authority") == "official_state"
                and e.value.get("fact_type") == "road_closure" and e.value.get("matches_facility_access_route")
                and e.value.get("relevance") == "facility"
+               and e.value.get("location_provenance", "source_coordinates") == "source_coordinates"  # never geocoded
                and e.value.get("confidence") in policy.get("closure_confidence", ["high", "medium"])
                and _in_window(e.value, *commute)]
     closed = sorted(set().union(*[set(e.value.get("routes_mentioned", [])) for e in closing]) & access) if closing else []

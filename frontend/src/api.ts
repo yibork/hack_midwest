@@ -325,6 +325,9 @@ export interface LocalFactValue {
   extracted_by: "agent" | "code";
   category: "construction" | "incident" | "flood" | "other" | null;
   active_since: string | null;
+  geometry: { type: string; coordinates: unknown } | null;
+  location_provenance: "source_coordinates" | "geocoded_text" | "none";
+  location_note: string | null;
 }
 
 export interface SourceRow {
@@ -338,6 +341,7 @@ export interface SourceRow {
   area: { counties?: string[]; cities?: string[] };
   refresh_minutes: number;
   robots: string;
+  coordinates: { fields?: string; geometry?: string; crs?: string; note?: string };
   last_fetch: string | null;
   status: string;
   items_found: number | null;
@@ -348,6 +352,37 @@ export interface SourcesResponse {
   sources: SourceRow[];
   integrated: { id: string; name: string; url: string; authority: string; note?: string }[];
   skipped: { name: string; url: string; reason: string }[];
+}
+
+export interface MapFact {
+  id: string;
+  agent: string | null;
+  fact_type: string | null;
+  relevance: "facility" | "commute" | "not_relevant" | "uncertain" | null;
+  location_provenance: "source_coordinates" | "geocoded_text" | "none";
+  location_note: string | null;
+  geometry: { type: string; coordinates: unknown } | null;
+  title: string | null;
+  quote: string | null;
+  link: string | null;
+  snapshot_url: string | null;
+  active_since: string | null;
+  distance_km: number | null;
+  source_id: string | null;
+  source_name: string | null;
+  authority: string | null;
+  category: string | null;
+  affected_commutes: number;
+  segments: string[];
+}
+
+export interface MapData {
+  facility: { name: string; lat: number; lon: number };
+  segments: { route: string; name: string; buffer_km: number; ramps: boolean; coordinates: [number, number][] }[];
+  corridor_cells: { bounds: [[number, number], [number, number]]; count: number }[];
+  corridor_rule: string;
+  facts: MapFact[];
+  unmapped: MapFact[];
 }
 
 export interface Persona {
@@ -478,6 +513,7 @@ export const api = {
   ack: (notificationId: string) => post<Notification>(`/notifications/${notificationId}/ack`),
   viewers: () => request<Viewers>("/viewers"),
   sources: () => request<SourcesResponse>("/sources"),
+  map: (recId: string) => request<MapData>(`/recommendations/${recId}/map`),
   simulate: (body: { kind: "zone_alert" | "road_closure" | "clear"; zone?: string; route?: string }) =>
     post<Record<string, unknown>>("/demo/simulate", body),
   nationalScan: () => request<NationalAlert[]>("/national-scan"),

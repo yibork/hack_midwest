@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import type { Evidence, RecommendationDetail } from "../api";
 import DecisionClock from "./DecisionClock";
+import MapView from "./MapView";
 import { PeopleStrip } from "./People";
 import LocalSignals, { AuthorityBadge, LocalEvidenceDetail, isLocal } from "./LocalSignals";
 import { Button, Card, ConfidenceBadge, PostureBadge, StatusBadge, fmtDateTime } from "./ui";
@@ -133,6 +134,7 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
       </Card>
 
       <LocalSignals evidence={rec.evidence} tz={tz} />
+      {!rec.facility.temporary && <MapView recId={rec.id} title="Map: facility, access routes, commute bands, local facts" />}
 
       <EvidenceList evidence={rec.evidence} tz={tz} />
     </div>

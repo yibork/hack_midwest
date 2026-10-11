@@ -61,6 +61,34 @@ source type, but no client for it exists in this codebase yet (the API itself an
 | Shawnee Mission School District alerts | Static page, no list of announcements. |
 | Social networks | Out of scope by policy. |
 
+## Where coordinates come from
+
+Inspected 2026-10-11. Each source's `coordinates` block in `registry.yaml` records the same.
+
+| Source | Fields | Geometry | Coordinate system |
+|---|---|---|---|
+| MoDOT `message.v2.json` | `GEOM.x` (lon), `GEOM.y` (lat) | point per message | WGS84 (`GEOM.spatialReference.wkid` 4326) |
+| MoDOT `LinesV1.json` | `GEOM.paths` | road polylines | WGS84. Not used: the records carry only MT/MST/LOI/GEOM, with no id to join them to messages |
+| KanDrive `events_v1/api/eventMapFeatures` | `geometry` (GeoJSON), joined to `eventReports` on `id` | MultiLineString / LineString along the road; Point / MultiPoint for spot events (all 214 events joinable) | WGS84 GeoJSON `[lon, lat]` |
+| KanDrive `eventReports` (fallback) | `location.primaryPoint` / `secondaryPoint` `{lat, lon, linearReference}`, `bounds` | segment endpoints (162 of 214 have distinct ends) | WGS84 |
+| KC Scout `DataProvider.asmx/LoadEntities` | `Incident[].Latitude`, `Longitude` | point | WGS84 (its map transforms EPSG:4326 -> 3857 for display) |
+| School districts, KSHB closings, KCPD, news RSS | none | none | KCPS's page embeds calendar JSON with `latitude`/`longitude` fields that are always empty |
+| Evergy (Kubra) | county names only | none | county-level counts |
+
+`kandrive.gov/list/events` is a single-page app shell; its data is the `events_v1` API above.
+
+Every fact carries three location fields:
+- `geometry`: GeoJSON.
+- `location_provenance`: `source_coordinates`, `geocoded_text` or `none`.
+- `location_note`: where the location came from.
+
+Without source coordinates, a fact is geocoded only if its text names a route and a cross street.
+The geocoder is OpenStreetMap Nominatim, used within its usage policy: descriptive User-Agent, at
+most 1 request per second, and every result (including "not found") cached in `geocode_cache`.
+The query is recorded in the note. Geocoded points are approximate: they can mark commute
+relevance but never trigger `access_route_closed`. `none` means relevance is `uncertain`, and the
+fact never triggers a rule or ROUTE_CLOSED.
+
 ## Location relevance
 
 All three road sources give coordinates (MoDOT `GEOM`, KanDrive primary/secondary points, KC
