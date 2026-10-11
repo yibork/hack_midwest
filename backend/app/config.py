@@ -76,6 +76,7 @@ class Settings:
     resend_from: str = field(default_factory=lambda: _pick("RESEND_FROM", default="Closure Call <onboarding@resend.dev>"))
     # For demos: send every email to this one inbox instead of the fake roster addresses.
     notify_email_override: str = field(default_factory=lambda: _pick("NOTIFY_EMAIL_OVERRIDE"))
+    demo_email: str = field(default_factory=lambda: _pick("DEMO_EMAIL"))
 
     # Shortens ack reminder/escalation timers to 1/2/3 minutes and enables /api/demo/* simulation.
     demo_mode: bool = field(default_factory=lambda: _pick("DEMO_MODE", default="0").lower() in ("1", "true", "yes"))

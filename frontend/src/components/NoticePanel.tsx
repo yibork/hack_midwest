@@ -35,7 +35,8 @@ export default function NoticePanel({ decision, tz, onSending }: { decision: Dec
   if (detail.loading && !detail.data) return <Card title="3 · Notice"><Loading /></Card>;
   if (detail.error) return <ErrorBox error={detail.error} onRetry={detail.reload} />;
   const d = detail.data!;
-  const toSend = d.notifications.filter((n) => n.included && !n.sent_at && n.message);
+  const toSend = d.notifications.filter((n) => n.included && !n.sent_at && n.message &&
+    !(Object.keys(n.channel_results).length > 0 && Object.values(n.channel_results).every(r => r.status === 'simulated')));
   const sent = d.notice.sent_at != null;
   const scheduledAt = scheduled ?? d.scheduled_send_at;
 
@@ -85,13 +86,17 @@ export default function NoticePanel({ decision, tz, onSending }: { decision: Dec
 
 function Summary({ rows }: { rows: Notification[] }) {
   const inc = rows.filter((n) => n.included);
-  const delivered = rows.filter((n) => n.sent_at && Object.values(n.channel_results).some((r) => r.ok)).length;
+  const results = rows.flatMap(n => Object.entries(n.channel_results));
+  const push = results.filter(([ch, r]) => ch === 'push' && r.ok).length;
+  const email = results.filter(([ch, r]) => ch === 'email' && r.ok).length;
+  const simulated = results.filter(([, r]) => r.status === 'simulated').length;
+  const failed = results.filter(([, r]) => !r.ok && r.status !== 'simulated').length;
   const acks = rows.filter((n) => n.requires_ack);
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1">
       <span><strong>{inc.length}</strong> to send</span>
       <span><strong>{rows.filter((n) => n.change === "unchanged").length}</strong> unchanged (not resent)</span>
-      <span><strong>{delivered}</strong> delivered</span>
+      <span>Delivered: {push + email} real ({push} push, {email} email) · {simulated} simulated (synthetic staff) · {failed} failed</span>
       <span><strong>{acks.filter((n) => n.acknowledged_at).length}/{acks.length}</strong> acknowledged</span>
       <span><strong>{rows.filter((n) => n.drafted_by === "agent").length}</strong> worded by the message agent</span>
     </div>
@@ -238,8 +243,9 @@ function Row({ n, name, tz }: { n: Notification; name: string; tz: string }) {
       <td className="py-2 pr-3 whitespace-nowrap">
         {n.included ? n.channels_planned.join(" + ") : "—"}
         {Object.entries(n.channel_results).map(([ch, r]) => (
-          <div key={ch} className={`text-xs ${r.ok ? "text-green-700" : "text-amber-700"}`}>
-            {ch}{r.fallback ? " (fallback)" : ""}: {r.ok ? "✓" : r.error ?? "failed"}
+          <div key={ch} title={r.status === 'simulated' ? r.message : r.error ?? undefined}
+               className={`text-xs ${r.status === 'simulated' ? 'text-slate-500' : r.ok ? 'text-green-700' : 'text-red-700'}`}>
+            {ch}{r.fallback ? " (fallback)" : ""}: {r.status === 'simulated' ? r.message ?? 'simulated' : r.ok ? "✓" : `Failed${r.http_status ? ` (HTTP ${r.http_status})` : ''}`}
           </div>
         ))}
       </td>

@@ -86,6 +86,19 @@ def _send(notice_id: str):
 
 # ---------------------------------------------------------------- versioning
 
+def test_simulated_staff_not_marked_sent_or_retried(monkeypatch):
+    monkeypatch.setattr(notices, "settings", dataclasses.replace(notices.settings, demo_mode=True,
+                                                               demo_email="owner@test.invalid"))
+    monkeypatch.setattr(notices, "send_push", lambda *a, **k: (True, None))
+    monkeypatch.setattr(notices, "send_email", lambda *a, **k: (True, None))
+    _, notice = _decide("closure", day_offset=4)
+    rows = _send(notice.id)
+    synthetic = [n for n in rows if n.channel_results and all(r.get("status") == "simulated" for r in n.channel_results.values())]
+    assert synthetic and all(n.sent_at is None for n in synthetic)
+    before = {n.id: n.channel_results for n in synthetic}
+    after = _send(notice.id)
+    assert all(n.channel_results == before[n.id] for n in after if n.id in before)
+
 def test_notice_versioning_update_all_clear_and_no_duplicates(quiet_channels):
     # v1: closure tomorrow (own date, so other tests' notices don't interfere)
     _, v1 = _decide("closure", day_offset=1)

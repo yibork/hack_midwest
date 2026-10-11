@@ -4,9 +4,33 @@ import logging
 
 import httpx
 
-from ..config import settings
+from ..config import redact, settings
 
 log = logging.getLogger(__name__)
+
+
+class ProviderError(str):
+    """Tuple-compatible error with structured HTTP status for the delivery record."""
+    def __new__(cls, message: str, http_status: int | None = None):
+        value = super().__new__(cls, message)
+        value.http_status = http_status
+        return value
+
+
+def provider_error(provider: str, exc: httpx.HTTPError) -> ProviderError:
+    status = None
+    message = type(exc).__name__
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        try:
+            data = exc.response.json()
+            message = str(data.get("message") or data.get("error") or exc.response.reason_phrase) if isinstance(data, dict) else exc.response.reason_phrase
+        except ValueError:
+            message = exc.response.text or exc.response.reason_phrase
+    message = redact(message)
+    if settings.resend_api_key:
+        message = message.replace(settings.resend_api_key, "[REDACTED]")
+    return ProviderError(f"{provider}: " + (f"HTTP {status}: " if status else "") + message[:1000], status)
 
 
 def send_push(topic: str | None, title: str, message: str, ack_url: str | None = None) -> tuple[bool, str | None]:
@@ -23,15 +47,14 @@ def send_push(topic: str | None, title: str, message: str, ack_url: str | None =
         r.raise_for_status()
         return True, None
     except httpx.HTTPError as e:
-        log.error("ntfy send failed: %s", e)
-        return False, f"ntfy error: {type(e).__name__}"
+        return False, provider_error("ntfy", e)
 
 
-def send_email(to: str, subject: str, text: str, html: str | None = None) -> tuple[bool, str | None]:
+def send_email(to: str, subject: str, text: str, html: str | None = None, *, demo: bool = False) -> tuple[bool, str | None]:
     if not settings.resend_api_key:
         print(f"\n[EMAIL - not sent, RESEND_API_KEY unset] to={to} subject={subject}\n{text}\n", flush=True)
         return False, "email not configured"
-    payload = {"from": settings.resend_from, "to": [settings.notify_email_override or to], "subject": subject,
+    payload = {"from": settings.resend_from, "to": [to if demo else settings.notify_email_override or to], "subject": subject,
                "text": text}
     if html:
         payload["html"] = html
@@ -41,8 +64,7 @@ def send_email(to: str, subject: str, text: str, html: str | None = None) -> tup
         r.raise_for_status()
         return True, None
     except httpx.HTTPError as e:
-        log.error("Resend send failed: %s", type(e).__name__)
-        return False, f"email error: {type(e).__name__}"
+        return False, provider_error("Resend", e)
 
 
 def send_staff_push(topic: str | None, title: str, message: str, actions: list[dict]) -> tuple[bool, str | None]:
@@ -56,4 +78,4 @@ def send_staff_push(topic: str | None, title: str, message: str, actions: list[d
         response.raise_for_status()
         return True, None
     except httpx.HTTPError as exc:
-        return False, f"ntfy error: {type(exc).__name__}"
+        return False, provider_error("ntfy", exc)

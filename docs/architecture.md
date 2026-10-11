@@ -221,6 +221,13 @@ are stable; public ntfy topics append `DEMO_TOPIC_SUFFIX` once. Maria, Dana, Jor
 Priya and Pat follow the presentation roster. Lee's already-teleworking instruction remains an
 email-only FYI; Jordan is unscheduled and requires an explicit manager call-in.
 
+Demo email delivery is restricted to the seven stable persona IDs and redirected to
+`DEMO_EMAIL` using `RESEND_FROM`, with an addressed-to preface and `[Demo -> Name]` subject.
+Other synthetic emails and pushes without a personal device are recorded as `simulated`,
+not sent or failed, and do not start acknowledgment timers. Confirmation totals count channel
+deliveries (push plus email), simulated channel attempts and failed channel attempts separately.
+Provider failures retain a redacted message and HTTP status in the delivery record.
+
 The winter scenario saves SIMULATED alerts, wind/ice, I-70 access and home-zone inputs, then
 uses the unchanged policy and people engines. The synthetic clock is explicitly 04:00 local
 on today (treated as a workday); 65 mph gusts meet the wind closure rule, while ice is context,

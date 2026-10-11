@@ -133,7 +133,7 @@ def render(db, decision):
     excluded_reasons = Counter(code for n in notes if not n.included for code in n.reason_codes)
     waves = Counter(n.wave for n in included)
     channels = Counter(c for n in included for c in n.channels_planned)
-    delivery = Counter("Delivered" if result.get("ok") else "Failed" for n in included for result in n.channel_results.values() if isinstance(result, dict))
+    delivery = Counter("Simulated" if result.get("status") == "simulated" else "Delivered" if result.get("ok") else "Failed" for n in included for result in n.channel_results.values() if isinstance(result, dict))
     counts = {"Recipients included": len({n.employee_id for n in included}), "Messages included": len(included), "Messages sent": sum(n.sent_at is not None for n in included),
               "Acknowledgments required": sum(n.requires_ack for n in included), "Acknowledgments received": sum(n.acknowledged_at is not None for n in included),
               "Reminders sent": sum(n.reminder_sent_at is not None for n in included), "Escalated messages": sum(n.escalation_level > 0 for n in included),

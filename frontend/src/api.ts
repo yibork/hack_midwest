@@ -229,6 +229,9 @@ export interface EmployeePublic {
 }
 
 export interface ChannelResult {
+  status?: 'delivered' | 'simulated' | 'failed';
+  message?: string;
+  http_status?: number | null;
   sent_at: string | null;
   ok: boolean;
   error: string | null;
