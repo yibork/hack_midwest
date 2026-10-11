@@ -1,3 +1,4 @@
+import closureCallLogo from "./assets/closure-call-logo.png";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { RoleProvider, useViewer, type ViewerRole } from "./components/RoleContext";
 import RoleSwitcher from "./components/RoleSwitcher";
@@ -46,7 +47,13 @@ function Shell() {
     <div className="flex min-h-screen flex-col md:flex-row">
       <nav className="operations-sidebar md:shrink-0" aria-label="Primary navigation">
         <div className="px-4 py-4">
-          <div className="text-lg font-extrabold tracking-tight">Closure Call</div>
+          <img
+            src={closureCallLogo}
+            alt="Closure Call"
+            width={2172}
+            height={724}
+            className="mb-2 block h-auto w-52 max-w-full md:w-full"
+          />
           <div className="text-xs text-slate-600">Facility operations support</div>
         </div>
         <div className="px-4 pb-3"><RoleSwitcher /></div>
