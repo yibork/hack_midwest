@@ -28,7 +28,7 @@ Use the **facility manager** demo role. This is a prototype with synthetic emplo
 
 ## How it works
 
-![Closure Call decision workflow](../closure-call-architecture.png)
+![Closure Call decision workflow](closure-call-architecture.png)
 
 *Solid arrows show the workflow. Dashed arrows show information saved to the decision record.*
 
@@ -70,7 +70,7 @@ Choose the **Facility manager** demo role. Start by evaluating a facility, then 
 *National scan demonstrates live alerts. Use the seeded facility to demonstrate the employee notification workflow; temporary national-scan facilities do not have an employee roster.* -->
 ## AWS: how we use Strands Agents SDK
 
-![Strands agents connected to Akamai AI inference, with rules-based recommendations and human approval](../closure-call-strands-agents.png)
+![Strands agents connected to Akamai AI inference, with rules-based recommendations and human approval](closure-call-strands-agents.png)
 
 **Strands provides the agent framework. Akamai provides the AI inference.** The application directly depends on `strands-agents[openai]` and creates real Strands `Agent` instances.
 
@@ -102,7 +102,7 @@ PostgreSQL is supported through `DATABASE_URL`; when unset, production uses SQLi
 
 ## CI/CD and deployment
 
-![Closure Call CI/CD pipeline, cloud hosting and database connections](../closure-call-cicd-cloud.png)
+![Closure Call CI/CD pipeline, cloud hosting and database connections](closure-call-cicd-cloud.png)
 
 [CI](../.github/workflows/ci.yml) runs backend tests, frontend tests and the frontend build on pushes and pull requests. [Deployment](../.github/workflows/deploy.yml) can run after successful CI on a push to `main`, unless `AUTO_DEPLOY=false`, or be triggered manually.
 
