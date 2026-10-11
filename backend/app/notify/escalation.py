@@ -34,7 +34,7 @@ def _manager_for(db, facility_id: str) -> models.Employee | None:
 
 def _escalation_text(person: models.Employee, n: models.Notification, level: int, sent_local: str) -> tuple[str, str]:
     who = "supervisor" if level == 1 else "facility manager"
-    label = "SIMULATED: " if (n.subject or "").startswith("SIMULATED") else "REPLAY: " if (n.subject or "").startswith("REPLAY") else ""
+    label = "SIMULATED: " if "SIMULATED" in (n.message or "") else "REPLAY: " if "REPLAY" in (n.message or "") else ""
     return (f"{label}No acknowledgment: {person.name}",
             f"{label}{person.name} has not acknowledged the notice sent at {sent_local} "
             f"({n.duty_instruction}). As their {who}, please follow up directly.")
@@ -58,10 +58,16 @@ def tick(now: datetime | None = None) -> list[str]:
             sent_local = n.sent_at.astimezone(tz).strftime("%H:%M")
             base = {"notification_id": n.id, "notice_id": n.notice_id, "employee_id": person.id,
                     "minutes_since_send": int(elapsed.total_seconds() // 60)}
-            if elapsed >= t_remind and n.reminder_sent_at is None:
-                prefix = "Recordatorio" if person.language == "es" else "Reminder"
-                results = deliver(person, n.channels_planned, f"{prefix}: {n.subject or 'Closure Call'}",
-                                  f"{prefix}: {n.message}", ack=ack_url(settings.public_base_url, n.id))
+            already_reminded = db.scalar(select(models.Notification.id).join(models.Notice).where(
+                models.Notification.employee_id == person.id,
+                models.Notification.reminder_sent_at.is_not(None),
+                models.Notification.archived_at.is_(None), models.Notice.archived_at.is_(None),
+                models.Notice.facility_id == notice.facility_id,
+                models.Notice.operating_date == notice.operating_date).limit(1))
+            if elapsed >= t_remind and n.reminder_sent_at is None and not already_reminded:
+                results = deliver(person, ["push"], n.subject or "Closure Call",
+                                  n.message or "", ack=ack_url(settings.public_base_url, n.id),
+                                  allow_email_fallback=False)
                 n.reminder_sent_at = now
                 record.append(db, "ack.reminder_sent", {**base, "channels": {k: v["ok"] for k, v in results.items()}},
                               facility_id=notice.facility_id)

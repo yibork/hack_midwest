@@ -147,7 +147,8 @@ DEMO_OVERRIDES = {
     "jordan": {10: "closurecall-demo-backup", 15: "day_off", 16: None},
     "sam": {1: "Sam Okafor"},
     "noor": {1: "Lee Chen"},
-    "priya": {1: "Priya Shah", 10: "closurecall-demo-priya"},
+    "priya": {1: "Priya Shah", 3: "telework_ready", 10: "closurecall-demo-priya",
+              11: "platte_city", 13: ["I-29"], 14: "standard", 16: "day"},
     "hank": {1: "Pat Moreno", 10: "closurecall-demo-ops"},
 }
 
@@ -278,6 +279,8 @@ def seed() -> None:
                 if person is None:
                     continue
                 person.name, person.ntfy_topic = row[1], row[10]
+                person.designation = row[3]
+                person.access_level = row[14]
                 person.functions, person.primary_function = row[5], row[6]
                 person.home_lat, person.home_lon, person.home_zone, person.home_county = HOMES[row[11]]
                 person.commute_routes = row[13]

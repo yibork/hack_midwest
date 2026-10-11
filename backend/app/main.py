@@ -93,12 +93,15 @@ def ack_page(notification_id: str):
             body, status = "<h1>Link not recognized</h1><p>This acknowledgment link is not valid.</p>", 404
         else:
             when = n.acknowledged_at.strftime("%Y-%m-%d %H:%M UTC")
+            demo_label = next((line for line in (n.message or "").splitlines() if line.startswith("Demo:")), "")
             body = (f"<h1>Thank you</h1><p>Your acknowledgment was recorded at {html.escape(when)}.</p>"
                     f"<p>Instruction: <strong>{html.escape(n.duty_instruction)}</strong></p>"
                     "<p>Gracias. Su confirmación quedó registrada.</p>"
                     # Opens the app as this person (demo role switcher, no real auth).
                     f'<p><a href="/me?as={quote(n.employee_id)}">View my status</a> · '
                     f'<a href="/me?as={quote(n.employee_id)}">Ver mi estado</a></p>')
+            if demo_label:
+                body += f"<p>{html.escape(demo_label)}</p>"
             status = 200
     page = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" '
             'content="width=device-width,initial-scale=1"><title>Closure Call</title></head>'

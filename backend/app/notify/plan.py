@@ -131,7 +131,7 @@ def access_rows(ctx: PostureContext, impacts: list[Impact]) -> list[schemas.Acce
 
 def _group_key(p: Planned, ctx: PostureContext, instruction_key: str) -> str:
     f = p.facts
-    return signature("v1", p.message_type, p.change, ctx.posture, ctx.params(), instruction_key, f.lang,
+    return signature("v2-five-line", p.message_type, p.change, ctx.posture, ctx.params(), instruction_key, f.lang,
                      "plain_language" in f.render, p.requires_ack, bool(f.update_line))
 
 
@@ -189,14 +189,18 @@ def build_plan(ctx: PostureContext, people: list[schemas.Employee], assignments:
             item.channels = channels_for(p, item.message_type, local_now)
             if "TELEWORK_SCHEDULED" in imp.codes:
                 item.channels = ["email"]  # never push
-            item.facts = msg.MessageFacts(
-                name=p.name, language=p.language, facility_name=ctx.facility_name,
-                operating_date=ctx.operating_date, posture=ctx.posture,
-                delay_hours=int(ctx.delay.total_seconds() // 3600), message_type=item.message_type,
-                change=item.change, instruction=item.duty_instruction, access=imp.access, why_codes=imp.codes,
-                requires_ack=item.requires_ack, ack_url=ack_url(base_url, pid), update_line=update_line,
-                render=imp.render, extra_times=extra_times)
-            item.group_key = _group_key(item, ctx, imp.instruction_key or item.change)
+        item.facts = msg.MessageFacts(
+            name=p.name, language=p.language, facility_name=ctx.facility_name,
+            operating_date=ctx.operating_date, posture=ctx.posture,
+            delay_hours=int(ctx.delay.total_seconds() // 3600), message_type=item.message_type,
+            change=item.change, instruction=item.duty_instruction, access=imp.access or Access("allowed", None, "", ""), why_codes=imp.codes,
+            requires_ack=item.requires_ack, ack_url=ack_url(base_url, pid), update_line=update_line,
+            render=imp.render, extra_times=extra_times,
+            report_time=fmt(imp.shift.start) if imp.shift else "",
+            end_time=fmt(imp.shift.end) if imp.shift else "",
+            function_name=next((fn.name.lower() for fn in functions if fn.code == p.primary_function), ""),
+            timezone=ctx.timezone)
+        item.group_key = _group_key(item, ctx, imp.instruction_key or item.change)
         planned.append(item)
 
     # ---- role messages

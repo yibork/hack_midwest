@@ -419,6 +419,8 @@ class MyStatus(BaseModel):
     duty_instruction: str
     building_access: str
     ack_url: str | None = None
+    message_lines: list[str] = []
+    facility_timezone: str = "America/Chicago"
 
 
 class Persona(BaseModel):

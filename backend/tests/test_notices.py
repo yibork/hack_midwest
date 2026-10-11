@@ -121,8 +121,8 @@ def test_notice_versioning_update_all_clear_and_no_duplicates(quiet_channels):
     assert v2.version == 2 and v2.kind == "update" and v2.supersedes_notice_id == v1.id
     sam = _personal(_rows(v2.id), "sam")
     assert sam.change == "update" and sam.included and sam.duty_instruction == "report by 10:30 or telework"
-    assert "Update: now report by 10:30 or telework (before: office closed, telework)" in sam.message
-    assert "replacing the" in sam.message
+    assert "**Report by 10:30 or telework.**" in sam.message
+    assert sam.message.startswith("Update:")
     ava = _personal(_rows(v2.id), "ava")  # emergency: "report as normal and acknowledge" -> "report at your normal time..."
     assert ava.change == "update"
     _send(v2.id)
@@ -184,7 +184,7 @@ def test_call_in_flow_and_ack_page():
 def test_reminder_and_escalation_timers_in_demo_mode(monkeypatch):
     monkeypatch.setattr(escalation, "settings", dataclasses.replace(escalation.settings, demo_mode=True))
     deliveries = []
-    monkeypatch.setattr(escalation, "deliver", lambda person, ch, s, b, ack=None: deliveries.append(person.id) or {})
+    monkeypatch.setattr(escalation, "deliver", lambda person, ch, s, b, ack=None, **kw: deliveries.append(person.id) or {})
     _, notice = _decide("closure")
     sent_at = utcnow() - timedelta(hours=1)
     with SessionLocal() as db:

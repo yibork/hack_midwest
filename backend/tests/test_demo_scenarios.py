@@ -65,13 +65,65 @@ def test_storm_runs_normal_policy_and_people_engine(demo_db):
     animal = next(c for c in plan.coverage if c.code == "animal_care")
     assert animal.required == 2 and animal.available == ["Dana R."]
     assert animal.gap == 1 and [b.name for b in animal.backups] == ["Jordan Pike"]
-    assert next(i for i in plan.impacts if i.employee.name == "Priya Shah").exposed
+    priya = next(i for i in plan.impacts if i.employee.name == "Priya Shah")
+    assert priya.employee.designation == "telework_ready"
+    homes = next(e for e in demo_db.scalars(select(models.Evidence)) if e.kind == "home_zone_alerts")
+    assert priya.employee.home_county in homes.value["zones"]
+    assert not priya.exposed  # she works from home on closure; her home remains in the warning area
     lee = [p for p in plan.planned if p.employee.name == "Lee Chen" and p.included]
     assert lee and all(p.channels == ["email"] and p.message_type == "fyi" for p in lee)
     dana = next(p for p in plan.planned if p.employee.name == "Dana R." and p.message_type == "action_required")
     assert dana.requires_ack
     for e in demo_db.scalars(select(models.Evidence)):
         assert e.scenario_kind == "simulated" and "SIMULATED" in e.relevance_note
+
+
+def test_manager_gets_one_digest_with_actual_delivery_counts(demo_db, monkeypatch):
+    monkeypatch.setattr(notices, "send_push", lambda *a, **kw: (True, None))
+    monkeypatch.setattr(notices, "send_email", lambda *a, **kw: (True, None))
+    rec = storm(demo_db)
+    decision = services.record_decision(demo_db, rec, schemas.DecisionIn(action="approve", manager_name="Maria Alvarez"))
+    notice = demo_db.scalar(select(models.Notice).where(models.Notice.decision_id == decision.id))
+    rows = notices.send_notice(demo_db, notice.id)
+    manager = [n for n in rows if n.employee_id == seed.emp_id("mgr") and n.included]
+    assert len(manager) == 1
+    digest = manager[0]
+    assert "Winter Storm Warning" in digest.message and "closure" in digest.message
+    assert "Animal care needs 2 on site; 1 available." in digest.message
+    assert "Jordan Pike - call them in on the Decide page" in digest.message
+    sent = len({n.employee_id for n in rows if n.employee_id != seed.emp_id("mgr") and n.sent_at and n.included})
+    assert f"Sent: {sent}. Acknowledged: 0." in digest.message
+    assert "SIMULATED" in digest.message
+    deliveries = []
+    monkeypatch.setattr(notices, "deliver", lambda *a, **kw: deliveries.append(a) or {})
+    notices.send_notice(demo_db, notice.id)
+    assert not any(args[0].id == seed.emp_id("mgr") for args in deliveries)  # failed employee deliveries may retry
+
+
+def test_one_push_reminder_per_person_even_with_multiple_notifications(demo_db, monkeypatch):
+    rec = storm(demo_db)
+    decision = services.record_decision(demo_db, rec, schemas.DecisionIn(action="approve", manager_name="Maria Alvarez"))
+    notice = demo_db.scalar(select(models.Notice).where(models.Notice.decision_id == decision.id))
+    dana = demo_db.scalar(select(models.Notification).where(models.Notification.notice_id == notice.id,
+                          models.Notification.employee_id == seed.emp_id("ava")))
+    start = database.utcnow()
+    dana.sent_at = start
+    duplicate = models.Notification(id=uuid.uuid4().hex, notice_id=notice.id, employee_id=dana.employee_id,
+        included=True, message_type="call_in", requires_ack=True, channels_planned=["push", "email"],
+        message=dana.message, subject=dana.subject, sent_at=start, reason_codes=[], reason_text="call-in",
+        audience_text="call-in", duty_instruction=dana.duty_instruction, building_access=dana.building_access,
+        wave="1", change="initial", channel_results={})
+    demo_db.add(duplicate)
+    demo_db.commit()
+    deliveries = []
+    def deliver(person, channels, subject, body, **kw):
+        deliveries.append((person.id, channels, kw))
+        return {"push": {"ok": True}}
+    monkeypatch.setattr(escalation, "deliver", deliver)
+    assert escalation.tick(start + timedelta(seconds=61)) == ["ack.reminder_sent"]
+    assert len(deliveries) == 1 and deliveries[0][1] == ["push"]
+    assert deliveries[0][2]["allow_email_fallback"] is False
+    assert escalation.tick(start + timedelta(seconds=90)) == []
 
 
 def test_national_demo_filters_and_ranks_live_policy_hazards(demo_db, monkeypatch):
@@ -164,7 +216,10 @@ def test_live_relocation_preserves_roster_topics_functions_and_records(demo_db, 
     assert notice and notices.plan_for_notice(demo_db, notice).planned
     rows = list(demo_db.scalars(select(models.Notification).where(models.Notification.notice_id == notice.id,
                                                                               models.Notification.included.is_(True))))
-    assert rows and all("Synthetic facility relocated" in n.message and "DEMO (real NWS)" in n.subject for n in rows)
+    personal = [n for n in rows if n.message_type in ("action_required", "fyi")]
+    assert personal and all("USDA demo office, Boulder CO" in n.message and
+                            ("Demo: synthetic office, real NWS alert" in n.message or "alerta real del NWS" in n.message)
+                            for n in personal)
     assert services.recommendation_detail(demo_db, rec).people.exposure_status == "unknown"
     rendered = memo.render(demo_db, decision)
     assert "Boulder" in rendered and "High Wind" in rendered and selected.snapshot_hash in rendered

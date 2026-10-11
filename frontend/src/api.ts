@@ -354,6 +354,8 @@ export interface MyStatus {
   duty_instruction: string;
   building_access: string;
   ack_url: string | null;
+  message_lines: string[];
+  facility_timezone: string;
 }
 
 export type Authority = "official_federal" | "official_state" | "official_local" | "news";

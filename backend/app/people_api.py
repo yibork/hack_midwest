@@ -15,11 +15,13 @@ from sqlalchemy.orm import Session
 
 from . import models, record, schemas
 from .access.policy import citation as access_citation
+from .access.policy import Access
 from .config import settings
 from .db import get_db, utcnow
 from .notify import NoDecisionError, acknowledge, call_in
 from .notify.impact import Exposure
-from .notify.notices import CallInError, plan_for, plan_for_notice
+from .notify import messages as msg
+from .notify.notices import CallInError, decorate_facts, plan_for, plan_for_notice, short_name
 from .notify.plan import ack_url, build_plan, context_for, load_inputs
 from .roles import Viewer, manager_only, require, viewer
 from .seed import PERSONAS, emp_id
@@ -115,6 +117,47 @@ def _access_list(facility: models.Facility, plan, notice: models.Notice | None) 
 
 
 # ---------------------------------------------------------------- manager: notices and call-ins
+
+def status_lines(db, facility, plan, person, n=None):
+    imp = next((i for i in plan.impacts if i.employee.id == person.id), None)
+    item = next((p for p in plan.planned if p.employee.id == person.id and p.facts), None)
+    if not imp:
+        return []
+    facts = item.facts if item else msg.MessageFacts(
+        name=person.name, language=person.language,
+        facility_name=short_name(facility) if settings.demo_mode else facility.name,
+        operating_date=plan.ctx.operating_date, posture=plan.ctx.posture, delay_hours=0,
+        message_type=imp.message_type, change="initial", instruction=imp.duty_instruction,
+        access=imp.access or Access("allowed", None, "", ""), why_codes=imp.codes,
+        report_time=imp.shift.start.strftime("%H:%M") if imp.shift else "")
+    if n:
+        saved_notice = db.get(models.Notice, n.notice_id)
+        decision = db.get(models.Decision, saved_notice.decision_id)
+        rec = db.get(models.Recommendation, decision.recommendation_id)
+        facts.instruction, facts.why_codes, facts.posture = n.duty_instruction, n.reason_codes, saved_notice.posture
+        facts.change, facts.message_type = n.change, n.message_type
+        verb, _, clock = n.building_access.partition(" ")
+        facts.access = Access(verb or "allowed", clock or None, n.access_code, "")
+        facts.requires_ack, facts.ack_url = n.requires_ack, ack_url(settings.public_base_url, n.id)
+        if n.function_code:
+            fn = db.scalar(select(models.CriticalFunction).where(
+                models.CriticalFunction.facility_id == facility.id, models.CriticalFunction.code == n.function_code))
+            facts.function_name = fn.name.lower() if fn else n.function_code.replace("_", " ")
+            times = msg._TIME.findall(n.duty_instruction)
+            if times:
+                facts.report_time = ":".join(times[-1])
+        decorate_facts(db, facility, rec, facts)
+    else:
+        rec = latest_recommendation(db, facility.id)
+        if rec:
+            decorate_facts(db, facility, rec, facts)
+        elif settings.demo_mode:
+            facts.footer = "Demo: synthetic office, no approved alert notice"
+        facts.requires_ack = False
+    lines = msg.template(facts)[1].splitlines()
+    if not n and not current_notice(db, facility.id, sent_only=True):
+        lines[0] = ("Sin decisión aprobada. " if facts.lang == "es" else "No approved notice yet. ") + lines[0]
+    return lines
 
 @router.get("/notices/{notice_id}", response_model=schemas.NoticeDetail, dependencies=[Depends(manager_only)])
 def get_notice(notice_id: str, db: Session = Depends(get_db)):
@@ -221,14 +264,17 @@ def my_status(v: Viewer = Depends(require("employee")), db: Session = Depends(ge
             employee=schemas.EmployeePublic.model_validate(person), facility_name=facility.name,
             operating_date=notice.operating_date, posture=notice.posture, notification=own,
             duty_instruction=n.duty_instruction, building_access=n.building_access,
-            ack_url=ack_url(settings.public_base_url, n.id) if n.requires_ack else None)
+            ack_url=ack_url(settings.public_base_url, n.id) if n.requires_ack else None,
+            message_lines=status_lines(db, facility, plan_for_notice(db, db.get(models.Notice, n.notice_id)), person, n),
+            facility_timezone=facility.timezone)
     plan = live_plan(db, facility) if not notice else plan_for_notice(db, notice)
     imp = next((i for i in plan.impacts if i.employee.id == person.id), None)
     return schemas.MyStatus(
         employee=schemas.EmployeePublic.model_validate(person), facility_name=facility.name,
         operating_date=plan.ctx.operating_date, posture=notice.posture if notice else None,
         duty_instruction=imp.duty_instruction if imp else "no change",
-        building_access=imp.access.label if imp and imp.access else "allowed")
+        building_access=imp.access.label if imp and imp.access else "allowed",
+        message_lines=status_lines(db, facility, plan, person), facility_timezone=facility.timezone)
 
 
 @router.post("/notifications/{notification_id}/ack", response_model=schemas.Notification)
