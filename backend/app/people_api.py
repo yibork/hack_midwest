@@ -130,8 +130,11 @@ def post_call_in(notice_id: str, body: schemas.CallInIn, db: Session = Depends(g
 
 @router.get("/notices/{notice_id}/access-list", response_model=schemas.AccessList,
             dependencies=[Depends(require("facility_manager", "security_desk"))])
-def notice_access_list(notice_id: str, db: Session = Depends(get_db)):
+def notice_access_list(notice_id: str, db: Session = Depends(get_db), v: Viewer = Depends(viewer)):
     notice = _get_notice(db, notice_id)
+    facility = db.get(models.Facility, notice.facility_id)
+    if v.role == "security_desk" and notice.operating_date != utcnow().astimezone(ZoneInfo(facility.timezone)).date():
+        raise HTTPException(403, "Security desk sees today's access list only")
     return _access_list(db.get(models.Facility, notice.facility_id), plan_for_notice(db, notice), notice)
 
 
@@ -142,7 +145,9 @@ def current_access_list(facility_id: str, db: Session = Depends(get_db)):
     facility = db.get(models.Facility, facility_id)
     if facility is None:
         raise HTTPException(404, "facility not found")
-    notice = current_notice(db, facility_id)
+    today = utcnow().astimezone(ZoneInfo(facility.timezone)).date()
+    notice = db.scalar(select(models.Notice).where(models.Notice.facility_id == facility_id,
+        models.Notice.archived_at.is_(None), models.Notice.operating_date == today).order_by(models.Notice.created_at.desc()).limit(1))
     if notice:
         return _access_list(facility, plan_for_notice(db, notice), notice)
     return _access_list(facility, normal_plan(db, facility), None)
@@ -219,7 +224,7 @@ def my_status(v: Viewer = Depends(require("employee")), db: Session = Depends(ge
 
 
 @router.post("/notifications/{notification_id}/ack", response_model=schemas.Notification)
-def ack(notification_id: str, v: Viewer = Depends(viewer), db: Session = Depends(get_db)):
+def ack(notification_id: str, v: Viewer = Depends(require("employee", "facility_manager")), db: Session = Depends(get_db)):
     n = db.get(models.Notification, notification_id)
     if n is None:
         raise HTTPException(404, "notification not found")

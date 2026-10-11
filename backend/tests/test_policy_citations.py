@@ -11,7 +11,7 @@ from app.rules.engine import evaluate
 
 def test_every_policy_entry_has_complete_provenance():
     catalog = policy_catalog()
-    assert catalog["version"].startswith("1.0.0+")
+    assert catalog["version"].startswith("1.0.1+")
     assert catalog["change_log"]
     for rule in catalog["rules"]:
         assert rule["justification"] and rule["verified"] is True

@@ -5,8 +5,9 @@ import { NEEDS_PERSON, peopleFor, useViewer, type ViewerRole } from "./RoleConte
 const ROLE_LABEL: Record<ViewerRole, string> = {
   facility_manager: "Facility manager",
   supervisor: "Supervisor",
-  security_desk: "Security desk",
   employee: "Employee",
+  security_desk: "Security desk",
+  auditor: "Auditor",
 };
 
 const words = (s: string) => s.replace(/_/g, " ");

@@ -108,7 +108,7 @@ export const ruleLabel = (rule: string) => ({high_wind: "High wind", wind_adviso
 
 /** Display-only translation; persisted facts, prompts and policy are unchanged. */
 export function humanText(value: string | null | undefined): string {
-  return (value ?? "").replace(/\b(?:normal|delayed_arrival|early_dismissal|telework|closure)\b/gi,
+  return (value ?? "").replace(/\bnormal(?: operations)+\b/gi, 'Normal operations').replace(/\b(?:normal(?! operations)|delayed_arrival|early_dismissal|telework|closure)\b/gi,
     code => POSTURE_LABEL[code.toLowerCase() as Posture])
     .replace(/\b(\d+\.\d+\.\d+)\+[a-f0-9]{8}\b/g, "$1")
     .replace(/\b[a-z]+(?:_[a-z0-9]+)+\b/gi, code => ruleLabel(code))

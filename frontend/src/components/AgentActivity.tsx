@@ -4,6 +4,7 @@ import { ErrorBox, fmtTime, humanText, postureLabel } from "./ui";
 
 const AGENT_LABEL: Record<string, string> = {
   weather_agent: "Weather",
+  forecaster_agent: "Weather forecaster",
   investigator_agent: "Investigator",
   writer_agent: "Writer",
   message_agent: "Writer",
@@ -124,7 +125,7 @@ function describe(e: RecordEvent): Line | null {
     case "investigation_requested":
       return { ...base, title: `Investigation for ${p.operating_date}`, detail: p.question, tone: "agent" };
     case "investigation.answer":
-      return { ...base, title: p.source_label, detail: p.answer, tone: "agent" };
+      return { ...base, title: "Answer ready — shown in the question thread", tone: "agent" };
     case "investigation.evidence_added":
       return { ...base, title: `${p.evidence_ids.length} evidence rows added`, tone: "data" };
     case "recommendation_revised":

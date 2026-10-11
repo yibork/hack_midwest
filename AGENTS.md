@@ -157,6 +157,11 @@ beat the shell environment on purpose.
 ## Status
 
 Done (newest first):
+- Progressive-disclosure Facility screen, three-step Decide/send scheduling with live counts,
+  fixed demo-role URLs and read-only Auditor. One-click target-day evidence sweep refreshes
+  all allowlisted sources, saves EAX AFD/HWO, and uses the shared investigation budget only
+  for changed-item extraction/verified forecaster context. Policy 1.0.1 is confidence-only;
+  posture thresholds and lead-time caps are unchanged. Writer validates wind metric pairs.
 - Saved-copy provenance/hash verification, additive record hash chains and printable decision
   memos. See docs/decision-record.md for canonical format and pre-migration integrity limits.
 - Demo scenarios/personas and non-destructive reset; USWDS-inspired frontend design pass.

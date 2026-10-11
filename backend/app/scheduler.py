@@ -62,7 +62,15 @@ def tick(now: datetime | None = None) -> list[dict]:
                 db.commit()
                 continue
             try:
-                if job.kind == "manager_recheck":
+                if job.kind == "notification_send":
+                    from .notify import send_notice
+                    decision = db.get(models.Decision, job.result.get("decision_id"))
+                    notice = db.scalar(select(models.Notice).where(models.Notice.decision_id == decision.id)) if decision and not decision.archived_at else None
+                    if notice is None:
+                        raise ValueError("No active manager-approved notice")
+                    rows = send_notice(db, notice.id)
+                    result = {"decision_id": decision.id, "notifications": len(rows)}
+                elif job.kind == "manager_recheck":
                     from . import investigations, schemas
                     latest = db.scalar(select(models.Recommendation).where(
                         models.Recommendation.facility_id == facility.id,

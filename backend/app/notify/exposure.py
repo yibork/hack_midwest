@@ -27,7 +27,7 @@ def home_zones(people: list[schemas.Employee]) -> list[str]:
     return sorted({z for p in people for z in (p.home_zone, p.home_county) if z})
 
 
-def collect(facility_id: str, evaluation_id: str | None, people: list[schemas.Employee]) -> schemas.Evidence:
+def collect(facility_id: str, evaluation_id: str | None, people: list[schemas.Employee], *, save_raw=False) -> schemas.Evidence:
     """Fetch alerts once per unique zone and store a single Evidence row for the evaluation."""
     zones = home_zones(people)
     with ThreadPoolExecutor(max_workers=6) as pool:
@@ -46,6 +46,8 @@ def collect(facility_id: str, evaluation_id: str | None, people: list[schemas.Em
         status="unknown" if zones and not by_zone else "ok",
     )
     with SessionLocal() as s:
+        if save_raw:
+            store_evidence(s, [e for _, e in results.values()], facility_id, evaluation_id)
         store_evidence(s, [ev], facility_id, evaluation_id)
         s.commit()
     return ev

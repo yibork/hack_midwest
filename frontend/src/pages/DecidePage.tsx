@@ -35,6 +35,8 @@ function DecideFlow({ rec: initial }: { rec: RecommendationDetail }) {
   const [rec, setRec] = useState(initial);
   const [decision, setDecision] = useState<Decision | null>(rec.decision);
   const [sending, setSending] = useState(false);
+  const [step, setStep] = useState(decision ? 3 : 1);
+  const health = useAsync(() => api.health(), []);
   const tz = rec.facility.timezone;
   useEffect(() => {
     if (rec.status !== 'preliminary') return;
@@ -50,12 +52,15 @@ function DecideFlow({ rec: initial }: { rec: RecommendationDetail }) {
     <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
       <div className="min-w-0 space-y-4">
         <h1 className="text-2xl font-bold">Decide: {rec.facility.name}</h1>
+        <ol aria-label="Decision progress" className="flex flex-wrap gap-3 rounded border bg-white p-3">{['Review', 'Approve or override', 'Send now or schedule'].map((label,index) => <li key={label} aria-current={step === index+1 ? 'step' : undefined} className={step === index+1 ? 'font-bold text-blue-700' : 'text-slate-600'}>{index+1} · {label}{index < 2 ? ' →' : ''}</li>)}</ol>
 
         <RecommendationHero rec={rec} actions={<Link className="text-sm underline" to={rec.facility.temporary ? "/national" : `/facility?facility=${rec.facility_id}`}>Review full evidence</Link>} />
         <Card title="Evidence and staffing"><details><summary>Why this recommendation</summary><p className="mt-2 text-sm text-slate-700">{humanText(rec.rationale)}</p></details>
           {rec.people && <div className="mt-3"><PeopleStrip people={rec.people} /></div>}</Card>
 
-        {decision ? (
+        {rec.posture === 'normal' && (!rec.people || rec.people.action_required + rec.people.fyi === 0) && <Card title="No notification needed"><p>Nobody needs to be notified for normal operations.</p>{health.data?.demo_mode && <p className="mt-2 text-sm">For a notification demo, override with a documented reason or choose the SIMULATED winter storm on the Facility page.</p>}</Card>}
+        {step === 1 && !decision && <Button disabled={rec.status === 'preliminary'} onClick={() => setStep(2)}>Continue to approve or override</Button>}
+        {step > 1 && (decision ? (
           <Card title="2 · Decision recorded">
             <div className="flex flex-wrap items-center gap-3">
               <span className="font-semibold">{decision.action === "approve" ? "Approved" : "Overridden"}</span>
@@ -77,13 +82,14 @@ function DecideFlow({ rec: initial }: { rec: RecommendationDetail }) {
             <Button className="mt-3" variant="secondary" onClick={() => window.location.reload()}>Check again</Button>
           </Card>
         ) : (
-          <DecisionForm rec={rec} onDecided={setDecision} />
-        )}
+          <DecisionForm rec={rec} onDecided={d => {setDecision(d); setStep(3);}} />
+        ))}
+        {step === 2 && !decision && <Button variant="secondary" onClick={() => setStep(1)}>Back to review</Button>}
 
         {decision && !rec.facility.temporary && <NoticePanel decision={decision} tz={tz} onSending={setSending} />}
       </div>
       <div className="space-y-4"><InvestigationPanel rec={rec} onRevision={async id => {
-        setRec(await api.recommendation(id)); setDecision(null);
+        setRec(await api.recommendation(id)); setDecision(null); setStep(1);
       }} /><AgentActivity evaluationId={rec.evaluation_id} live={sending} /></div>
     </div>
   );

@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, type CoverageItem, type Decision, type Notification, type NoticeDetail } from "../api";
 import DecisionClock from "./DecisionClock";
+import Disclosure from './Disclosure';
 import { CoverageStrip, codeLabel } from "./People";
 import { Button, Card, ErrorBox, Loading, fmtDateTime, fmtTime, humanText, useAsync } from "./ui";
 
@@ -12,6 +13,9 @@ export default function NoticePanel({ decision, tz, onSending }: { decision: Dec
   const detail = useAsync(() => api.decisionNotice(decision.id), [decision.id]);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [at, setAt] = useState('');
+  const [scheduled, setScheduled] = useState<string | null>(null);
+  useEffect(() => {const timer = setInterval(() => {detail.reload();}, 3000); return () => clearInterval(timer);}, [decision.id]);
 
   async function send() {
     setSending(true);
@@ -33,15 +37,16 @@ export default function NoticePanel({ decision, tz, onSending }: { decision: Dec
   const d = detail.data!;
   const toSend = d.notifications.filter((n) => n.included && !n.sent_at && n.message);
   const sent = d.notice.sent_at != null;
+  const scheduledAt = scheduled ?? d.scheduled_send_at;
 
   return (
     <>
       <Card
-        title={`3 · Notice v${d.notice.version} (${d.notice.kind.replace("_", " ")})`}
+        title={sent ? 'Confirmed · Live delivery and acknowledgments' : '3 · Send now or schedule'}
         actions={
-          <Button onClick={send} disabled={sending || toSend.length === 0}
+          <Button onClick={send} disabled={sending || toSend.length === 0 || !!scheduledAt}
                   variant={decision.final_posture === "closure" ? "danger" : "primary"}>
-            {sending ? "Sending…" : toSend.length ? `Send ${toSend.length} messages (wave 1 first)` : "All sent"}
+            {sending ? "Sending…" : scheduledAt ? 'Send scheduled' : toSend.length ? `Send now · ${toSend.length} messages` : sent ? "All sent" : "No messages needed"}
           </Button>
         }
       >
@@ -62,10 +67,18 @@ export default function NoticePanel({ decision, tz, onSending }: { decision: Dec
           <DecisionClock decideBy={d.clock.at} timezone={tz} label={d.clock.label} />
         </div>
         {sendError && <div className="mt-3"><ErrorBox error={sendError} /></div>}
+        {!sent && !scheduledAt && toSend.length > 0 && <details className="mt-3"><summary>Schedule instead · sends the stored, manager-approved notice</summary><form className="mt-2 flex flex-wrap gap-2" onSubmit={async e => {
+          e.preventDefault(); setSendError(null); setSending(true);
+          try {const result = await api.scheduleNotify(decision.id, new Date(at).toISOString()); setScheduled(result.at);}
+          catch(error) {setSendError(error instanceof Error ? error.message : String(error));}
+          finally {setSending(false);}
+        }}><input aria-label="Send time" type="datetime-local" value={at} required onChange={e => setAt(e.target.value)} className="rounded border p-2" /><Button disabled={sending || !!scheduled} type="submit">Schedule send</Button></form></details>}
+        {scheduledAt && !sent && <p role="status" className="mt-3">Confirmed · Send scheduled for {fmtDateTime(scheduledAt, tz)}. Delivery counts update every 3 seconds.</p>}
+        {sent && <a className="mt-3 block underline" href={`/decisions/${decision.id}/memo`} target="_blank" rel="noreferrer">View decision memo</a>}
       </Card>
 
-      <Staffing detail={d} onChanged={detail.reload} />
-      <Recipients detail={d} tz={tz} />
+      <Disclosure title="Staffing and call-ins" summary={`${d.coverage.filter(c => c.status !== 'covered').length} functions need attention`}><Staffing detail={d} onChanged={detail.reload} /></Disclosure>
+      <Disclosure title="Recipient details" summary={`${d.notifications.filter(n => n.included).length} included · delivery channels, waves and reasons`}><Recipients detail={d} tz={tz} /></Disclosure>
     </>
   );
 }

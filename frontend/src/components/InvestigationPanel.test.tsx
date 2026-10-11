@@ -15,6 +15,21 @@ beforeEach(() => {
 });
 afterEach(() => {cleanup(); vi.restoreAllMocks();});
 
+it('deduplicates answers by id and collapses previous questions', async () => {
+  const old = {id: 'old', recommendation_id: 'rec', question: 'check_access_routes', action: 'check_access_routes', status: 'completed', created_at: '2026-10-11T00:00:00Z', revised_recommendation_id: null,
+    budget: {used: 3, limit: 12, label: '3 of 12 checks used'}, result: {answer: 'Old answer.'}, staff_questions: []};
+  const latest = {...old, id: 'new', question: 'Why low confidence?', result: {answer: 'Latest answer.'}};
+  vi.mocked(api.investigations).mockResolvedValue([old, old, latest, latest]);
+  render(<MemoryRouter><InvestigationPanel rec={rec} onRevision={() => {}} /></MemoryRouter>);
+  await screen.findByText('Latest answer.');
+  expect(screen.getAllByText('Latest answer.')).toHaveLength(1);
+  expect(screen.queryByText('Old answer.')).toBeNull();
+  expect(screen.getByText('Previous questions (1)').closest('details')?.open).toBe(false);
+  fireEvent.click(screen.getByText('Previous questions (1)'));
+  await screen.findByText('Old answer.');
+  expect(screen.getByText('check access routes')).toBeTruthy();
+});
+
 it('shows target weekday and budget; sends record explanation action', async () => {
   render(<MemoryRouter><InvestigationPanel rec={rec} onRevision={() => {}} /></MemoryRouter>);
   await screen.findByText('3 of 12 checks used');
@@ -57,7 +72,7 @@ it('shows immediate submission feedback and live steps through completion', asyn
   }]);
   await screen.findByText('For Tuesday, confidence is low.', {}, {timeout: 3000});
   expect(screen.queryByText('Queued — waiting to start')).toBeNull();
-  expect(screen.getByText('Live tool steps')).toBeTruthy();
+  expect(screen.queryByText('Live tool steps')).toBeNull();
 });
 
 it('shows request failures instead of silently waiting', async () => {

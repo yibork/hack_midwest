@@ -104,6 +104,29 @@ Scout `Latitude`/`Longitude`). Matching is geographic (`backend/app/geo.py`):
 
 ## What the facts can change
 
+### EAX forecaster products (verified 2026-10-11 UTC)
+
+The deterministic evidence sweep uses the official NWS API:
+[AFD index](https://api.weather.gov/products/types/AFD/locations/EAX) and
+[HWO index](https://api.weather.gov/products/types/HWO/locations/EAX), then
+`https://api.weather.gov/products/{id}` for the latest `issuanceTime` in `@graph`.
+Both index/detail sequences returned HTTP 200 with `issuingOffice: KEAX`, matching
+`productCode` and nonempty `productText` during verification. Latest sampled IDs were
+`9335b416-482c-4079-bded-341c211c0f3d` (AFD, 2026-10-10 23:25 UTC) and
+`91016f68-80b2-4a89-9731-77e566001ce2` (HWO, 2026-10-10 10:01 UTC).
+
+Only these fixed endpoints and validated product IDs are fetched, with no redirects or
+source-supplied URLs. Raw detail bytes are saved by SHA-256 as official-federal evidence;
+products older than 48 hours are stale. Refreshes bypass the usual NWS/local feed caches.
+All allowlisted local sources are checked, including news even when the coordinator would
+normally skip it. Unchanged parsed items reuse validated facts; changed/new relevant items
+alone go to specialists, subject to the shared investigation budget and road-facts cache.
+One optional model call extracts target-day forecaster context. Its quote must be an exact
+consecutive excerpt of at most 25 words; target-day and hazard words are verified in code.
+No model availability or quota is required to fetch, save or re-evaluate evidence. See
+Facility policy v1.0 and the Thresholds page's forecaster-context entry for confidence-only
+use; text never changes posture. SIMULATED and REPLAY sweeps never fetch live sources.
+
 Rules in `backend/app/rules/local.py` (cited as facility policy v1):
 - **Facility access route closed.** A road closure from an official state source, located on a
   facility access segment, during the commute window, triggers the `access_route_closed` rule:

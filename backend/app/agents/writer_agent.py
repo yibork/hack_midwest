@@ -41,6 +41,8 @@ sentences from what_would_change (e.g. "gusts of 58 mph would move this to closu
 - Mention the target day and why it was chosen if target_note is given.
 - Cite sources and times (e.g. "NWS alerts retrieved 11:13 CDT").
 - Use only numbers that appear in the facts. Do not round, convert or compute new numbers.
+- Use metric_threshold_pairs: compare gusts only with gust thresholds, sustained wind only
+  with sustained thresholds. These are different measurements, not interchangeable.
 - Say plainly if any data was unavailable, and that the manager must approve before staff are notified.
 - Do not add advice or facts that are not in the input."""
 
@@ -50,7 +52,7 @@ class Rationale(BaseModel):
     paragraph: str
 
 
-def build_facts(rec: Recommendation, evidence: list[Evidence], facility_name: str, tz: str) -> dict:
+def build_facts(rec: Recommendation, evidence: list[Evidence], facility_name: str, tz: str, facility=None) -> dict:
     local = ZoneInfo(tz)
 
     def t(d):
@@ -66,10 +68,32 @@ def build_facts(rec: Recommendation, evidence: list[Evidence], facility_name: st
         if e.kind == "wind_forecast" and isinstance(e.value, dict):
             item["peak_gust_next_24h_mph"] = e.value.get("peak_gust_mph")
         ev_facts.append(item)
+    from ..rules.engine import load_policy, compute_windows
+    from ..sources.nws import parse_dt
+    policy = load_policy()
+    pairs = {"gust": {"observed": [], "thresholds": [], "units": "mph", "window": "target-day commute"},
+             "sustained": {"observed": [], "thresholds": [], "units": "mph", "window": "target-day commute"}}
+    for rule in policy.rules:
+        for clause in rule.get("condition", {}).get("any", []):
+            metric = {"forecast_gust": "gust", "forecast_wind": "sustained"}.get(clause.get("type"))
+            if metric:
+                pairs[metric]["thresholds"].extend(clause[k] for k in ("min_mph", "below_mph") if k in clause)
+    windows = compute_windows(facility, rec.evaluated_at, policy, rec.operating_date) if facility else None
+    for ev in evidence:
+        if ev.kind != "wind_forecast" or not isinstance(ev.value, dict):
+            continue
+        for hour in ev.value.get("hours", []):
+            at = parse_dt(hour.get("time") or hour.get("start"))
+            if windows and (not at or not windows.commute_start <= at < windows.commute_end):
+                continue
+            for metric, key in (("gust", "gust_mph"), ("sustained", "wind_mph")):
+                if isinstance(hour.get(key), (int, float)):
+                    pairs[metric]["observed"].append(hour[key])
     return {
+        "metric_threshold_pairs": pairs,
         "facility": facility_name,
         "operating_date": rec.operating_date.strftime("%A, %B %d, %Y"),
-        "recommended_posture_label": rec.posture.replace("_", " "),
+        "recommended_posture_label": "normal operations" if rec.posture == "normal" else rec.posture.replace("_", " "),
         "confidence": rec.confidence,
         "confidence_reasons": rec.confidence_reasons,
         "triggers": [t_.model_dump(include={"rule_id", "description", "threshold", "observed", "margin", "units"})
@@ -127,6 +151,21 @@ def validate_rationale(text: str, posture: str, facts: dict, stated_posture: str
     unknown = sorted({n for n in _NUMBER.findall(text) if float(n) not in allowed}, key=float)
     if unknown:
         return f"mentions number(s) not in the triggers/evidence: {', '.join(unknown)}"
+    for sentence in _SENTENCE.split(text):
+        # A comparison must stay within one metric even if both numbers exist elsewhere.
+        for clause in re.split(r";|\band\b", sentence):
+            numbers = re.findall(r"\d+(?:\.\d+)?(?=\s*(?:mph|/|\b))", clause)
+            if not re.search(r"\bmph\b", clause, re.I) or not numbers:
+                continue
+            metric = "gust" if re.search(r"\bgusts?\b", clause, re.I) else "sustained" if re.search(r"\bsustained\b|\bwind\b", clause, re.I) else None
+            pairs = facts.get("metric_threshold_pairs", {})
+            if metric and metric in pairs:
+                if metric == "gust" and re.search(r"\bsustained\b", clause, re.I) and re.search(r"below|above|threshold|against|meets|exceeds|compared", clause, re.I):
+                    return "metric mismatch: gust compared with a sustained-wind threshold"
+                allowed_metric = {float(n) for n in pairs[metric]["observed"] + pairs[metric]["thresholds"]}
+                wrong_metric = [n for n in numbers if float(n) not in allowed_metric]
+                if wrong_metric:
+                    return f"metric mismatch: {metric} compared with number(s) not grounded in that metric: {', '.join(wrong_metric)}"
     return None
 
 
@@ -147,7 +186,7 @@ def write_rationale(rec: Recommendation, evidence: list[Evidence], *, facility_n
     """-> (rationale, "agent" | "template", label). rec.rationale holds the engine's template.
     A draft rejected for length gets one retry with the reason; then the template is used.
     label: "AI draft" | "AI draft rejected: <reason> - template used" | "LLM unavailable - template used"."""
-    facts = build_facts(rec, evidence, facility_name, tz)
+    facts = build_facts(rec, evidence, facility_name, tz, state.get("writer_facility"))
     ids = {"evaluation_id": state.get("evaluation_id"), "facility_id": state.get("facility_id")}
     feedback = None
     for attempt in (1, 2):

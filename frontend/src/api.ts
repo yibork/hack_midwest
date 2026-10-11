@@ -32,7 +32,7 @@ export interface Evidence {
   id: string;
   facility_id: string | null;
   evaluation_id: string | null;
-  source: "nws" | "nwps" | "modot" | "roster" | "demo" | "local" | "human";
+  source: "nws" | "nwps" | "modot" | "roster" | "demo" | "local" | "human" | "sweep";
   kind: string;
   value: unknown;
   units: string | null;
@@ -110,7 +110,8 @@ export interface Investigation {
   created_at: string;
   revised_recommendation_id: string | null; budget: InvestigationBudget;
   result: {answer?: string; source_label?: string; limitations?: string[]; could_not_answer_because?: string;
-    evidence_ids?: string[]; policy_ids?: string[]; new_evidence_ids?: string[]; tools_used?: string[]; target_date?: string};
+    evidence_ids?: string[]; policy_ids?: string[]; new_evidence_ids?: string[]; tools_used?: string[]; target_date?: string;
+    source_checks?: {source: string; status: string}[]; forecaster_summary?: {supporting_quote: string; forecaster_confidence: string; hazards_mentioned: string[]; mentions_target_day: boolean; saved_copy_hash: string} | null};
   staff_questions: {id: string; employee_id: string; question: string; options: string[]; status: string;
     response: string | null; expires_at: string; delivery: {ok: boolean; error?: string}}[];
 }
@@ -284,6 +285,7 @@ export interface NoticeDetail {
   coverage: CoverageItem[];
   notifications: Notification[];
   names: Record<string, string>;
+  scheduled_send_at?: string | null;
 }
 
 export interface AccessRow {
@@ -562,6 +564,9 @@ export const api = {
   demoReset: () => post<{recordings_retained: boolean}>("/demo/reset"),
   demoDeliveryStatus: () => request<{employee_id: string; ntfy_topic: string | null; last_delivery: {at: string; ok: boolean; error: string | null; kind: string} | null}[]>("/demo/delivery-status"),
   investigate: (id: string, body: InvestigationRequest) => request<{investigation_id: string}>(`/recommendations/${id}/investigate`, {method: 'POST', body: JSON.stringify(body), signal: AbortSignal.timeout(15000)}),
+  collectEvidence: (id: string) => request<{investigation_id: string; recommendation_id: string}>(`/recommendations/${id}/collect-evidence`, {method: 'POST', signal: AbortSignal.timeout(15000)}),
+  evidence: (id: string) => request<Evidence>(`/evidence/${id}`),
+  scheduleNotify: (id: string, at: string) => request<{at: string; status: string}>(`/decisions/${id}/schedule-notify`, {method: 'POST', body: JSON.stringify({at})}),
   investigations: (id: string) => request<Investigation[]>(`/recommendations/${id}/investigations`, {signal: AbortSignal.timeout(15000)}),
   investigation: (id: string) => request<Investigation>(`/investigations/${id}`),
   suggestions: (id: string) => request<{suggestions: {action: string; label: string}[]; budget: InvestigationBudget}>(`/recommendations/${id}/suggestions`, {signal: AbortSignal.timeout(15000)}),

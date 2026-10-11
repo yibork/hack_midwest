@@ -1,6 +1,7 @@
 import { useState } from "react";
 import SavedCopyLinks from "../components/SavedCopyLinks";
 import RecordVerification from "../components/RecordVerification";
+import {useViewer} from '../components/RoleContext';
 import { api, type RecordAt, type RecommendationDetail } from "../api";
 import { Button, Card, ConfidenceBadge, ErrorBox, Loading, PolicyDetails, PostureBadge, StatusBadge, fmtDateTime, humanText, ruleLabel, useAsync } from "../components/ui";
 
@@ -20,12 +21,14 @@ function nowLocalInput(): string {
 }
 
 export default function RecordPage() {
+  const {viewer} = useViewer();
+  const auditor = viewer.role === 'auditor';
   const facilities = useAsync(() => api.facilities(), []);
   const [facilityId, setFacilityId] = useState<string>("");
   const fid = facilityId || facilities.data?.[0]?.id || "";
 
   const events = useAsync(() => (fid ? api.record({ facility_id: fid }) : Promise.resolve([])), [fid]);
-  const current = useAsync(() => (fid ? api.latestRecommendation(fid) : Promise.resolve(null)), [fid]);
+  const current = useAsync(() => (fid && !auditor ? api.latestRecommendation(fid) : Promise.resolve(null)), [fid, auditor]);
 
   const [when, setWhen] = useState(nowLocalInput());
   const [past, setPast] = useState<RecordAt | null>(null);
@@ -74,7 +77,7 @@ export default function RecordPage() {
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <Snapshot title={`As of ${fmtDateTime(past.as_of)}`} rec={past.recommendation}
                       notificationCount={past.notifications.length} />
-            <Snapshot title="Now" rec={current.data ?? null} />
+            {!auditor && <Snapshot title="Now" rec={current.data ?? null} />}
           </div>
         )}
       </Card>
@@ -94,7 +97,7 @@ export default function RecordPage() {
                   {"status" in e.payload && <span className="ml-2"><StatusBadge status={e.payload.status as "ok"} /></span>}
                 </summary>
                 <details className="mb-2"><summary>Technical details</summary><pre className="overflow-x-auto rounded bg-slate-50 p-3 text-xs">{JSON.stringify(e.payload, null, 2)}</pre></details>
-                {e.event_type === 'decision.recorded' && typeof e.payload.decision_id === 'string' && <p className="mb-2"><a className="underline" href={`/decisions/${e.payload.decision_id}/memo`} target="_blank" rel="noreferrer">Decision memo · Print / save PDF</a></p>}
+                {e.event_type === 'decision.recorded' && typeof e.payload.decision_id === 'string' && <p className="mb-2"><a className="underline" href={`/decisions/${e.payload.decision_id}/memo${auditor ? '?role=auditor' : ''}`} target="_blank" rel="noreferrer">Decision memo · Print / save PDF</a></p>}
               </details>
             </li>
           ))}
