@@ -64,7 +64,7 @@ export function PeopleStrip({ people }: { people: PeopleSummary }) {
         <span><strong>{people.action_required}</strong> must act</span>
         <span><strong>{people.fyi}</strong> FYI</span>
         <span className={people.exposed_count ? "font-semibold text-amber-800" : ""} title={EXPOSURE_RULE}>
-          <strong>{people.exposed_count}</strong> with an exposed commute
+          {people.exposure_status === 'unknown' ? people.exposure_note ?? 'Home-zone exposure: not available for this location' : <><strong>{people.exposed_count}</strong> with an exposed commute</>}
         </span>
         {people.minor_commute_count > 0 && (
           <span className="cursor-help text-slate-600 underline decoration-dotted" title={EXPOSURE_RULE}>

@@ -194,7 +194,11 @@ def run_check(action, state):
             people = load_inputs(db, facility_row, rec.operating_date)[0]
         eid = state["evaluation_id"]
         if action == "check_river":
-            services.store_evidence_now(nwps.collect(windows), fac.id, eid)
+            if fac.demo_origin_id:
+                from .demo_location import unknown
+                services.store_evidence_now([unknown("river_categories", "nwps")], fac.id, eid)
+            else:
+                services.store_evidence_now(nwps.collect(windows), fac.id, eid)
         elif action == "recheck_now":
             weather_agent.fetch_alerts(fac, eid)
             weather_agent.fetch_forecast(fac, eid, operating_date=rec.operating_date)
@@ -552,7 +556,7 @@ def revision_context(investigation):
 def revise(db, investigation, before, evidence, *, pending=False):
     facility = db.get(models.Facility, before.facility_id)
     result = evaluate(schemas.Facility.model_validate(facility), [schemas.Evidence.model_validate(e) for e in evidence],
-                      datetime.fromisoformat(before.scenario_context["clock"]) if before.scenario_context else utcnow(),
+                      datetime.fromisoformat(before.scenario_context["clock"]) if before.scenario_context and before.scenario_context.get("clock") else utcnow(),
                       operating_date=before.operating_date, target_mode=before.target_mode or "explicit",
                       target_note=original_target_note(db, before))
     if before.scenario_kind:
@@ -578,7 +582,7 @@ def revise(db, investigation, before, evidence, *, pending=False):
 def finish_revision(db, investigation, before, pending, evidence):
     facility = db.get(models.Facility, before.facility_id)
     final = evaluate(schemas.Facility.model_validate(facility), [schemas.Evidence.model_validate(e) for e in evidence],
-                     datetime.fromisoformat(before.scenario_context["clock"]) if before.scenario_context else utcnow(), operating_date=before.operating_date, target_mode=before.target_mode or "explicit",
+                     datetime.fromisoformat(before.scenario_context["clock"]) if before.scenario_context and before.scenario_context.get("clock") else utcnow(), operating_date=before.operating_date, target_mode=before.target_mode or "explicit",
                      target_note=original_target_note(db, before))
     for name in ("posture", "confidence", "confidence_reasons", "what_would_change", "evidence_ids", "lead_time_hours", "rationale", "target_note"):
         setattr(pending, name, getattr(final, name))

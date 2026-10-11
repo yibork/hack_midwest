@@ -56,6 +56,9 @@ def choose_target(fac: schemas.Facility, now: datetime, target_date: date | None
 def evaluate_facility(db: Session, facility: models.Facility, evaluation_id: str | None = None,
                       target_date: date | None = None, demo_workday: bool = False,
                       scheduled: bool = False) -> models.Recommendation:
+    if facility.demo_origin_id:
+        from .demo_location import evaluate_live
+        return evaluate_live(db, facility)
     eid = evaluation_id or uuid.uuid4().hex
     fac = schemas.Facility.model_validate(facility)
     day, mode, why = choose_target(fac, utcnow(), target_date, demo_workday, scheduled)

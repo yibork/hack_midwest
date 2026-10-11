@@ -23,6 +23,8 @@ class Facility(Base):
     operating_days: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)  # None = Mon-Fri
     # Created by /api/evaluate-point (national scan); hidden from the facility list.
     temporary: Mapped[bool] = mapped_column(Boolean, default=False)
+    demo_origin_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    nws_office: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
 
 class Employee(Base):

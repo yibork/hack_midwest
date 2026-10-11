@@ -94,7 +94,7 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
       </Card>
       </Disclosure>
 
-      <Disclosure title="Local signals" summary={`${rec.evidence.filter(e => e.kind === 'local_fact').length} local facts · ${rec.evidence.filter(e => e.kind === 'local_fact' && (e.value as Record<string, unknown>)?.relevance === 'access').length} on access routes`}>
+      <Disclosure title="Local signals" summary={rec.facility.demo_origin_id ? 'Local road and closure sources: not available for this location' : `${rec.evidence.filter(e => e.kind === 'local_fact').length} local facts · ${rec.evidence.filter(e => e.kind === 'local_fact' && (e.value as Record<string, unknown>)?.relevance === 'access').length} on access routes`}>
       <LocalSignals evidence={rec.evidence} tz={tz} />
       </Disclosure>
       {!rec.facility.temporary && <Disclosure title="Map" summary="Facility, access routes, commute bands and local facts"><MapView recId={rec.id} title="Map: facility, access routes, commute bands, local facts" /></Disclosure>}

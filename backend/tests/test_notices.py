@@ -86,6 +86,25 @@ def _send(notice_id: str):
 
 # ---------------------------------------------------------------- versioning
 
+def test_simulated_staff_not_marked_sent_or_retried(monkeypatch):
+    monkeypatch.setattr(notices, "settings", dataclasses.replace(notices.settings, demo_mode=True,
+                                                               demo_email="owner@test.invalid"))
+    monkeypatch.setattr(notices, "send_push", lambda *a, **k: (True, None))
+    monkeypatch.setattr(notices, "send_email", lambda *a, **k: (True, None))
+    _, notice = _decide("closure", day_offset=4)
+    rows = _send(notice.id)
+    synthetic = [n for n in rows if n.channel_results and all(r.get("status") == "simulated" for r in n.channel_results.values())]
+    assert synthetic and all(n.sent_at is None for n in synthetic)
+    before = {n.id: n.channel_results for n in synthetic}
+    after = _send(notice.id)
+    assert all(n.channel_results == before[n.id] for n in after if n.id in before)
+    with TestClient(app) as client:
+        response = client.get(f"/api/decisions/{notice.decision_id}/notice", headers=MANAGER)
+    assert response.status_code == 200
+    public = {n["id"]: n for n in response.json()["notifications"]}
+    assert all(r["status"] == "simulated" and r["message"].startswith("simulated:")
+               for nid in before for r in public[nid]["channel_results"].values())
+
 def test_notice_versioning_update_all_clear_and_no_duplicates(quiet_channels):
     # v1: closure tomorrow (own date, so other tests' notices don't interfere)
     _, v1 = _decide("closure", day_offset=1)

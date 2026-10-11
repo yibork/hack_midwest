@@ -53,6 +53,9 @@ def people_summary(db: Session, rec: models.Recommendation, facility: models.Fac
 
     plan = plan_for(db, facility, rec, rec.posture)
     summary = plan.summary()
+    if facility.demo_origin_id:
+        summary.exposure_status = "unknown"
+        summary.exposure_note = "Home-zone exposure: not available for this location"
     # Reconcile with road facts: conditions (not closures) inside commute corridors are minor.
     minor = [e.value for e in db.scalars(select(models.Evidence).where(
         models.Evidence.id.in_(rec.evidence_ids), models.Evidence.kind == "local_fact"))

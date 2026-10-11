@@ -144,23 +144,26 @@ def test_forecaster_quote_verification(quote, valid):
     assert forecaster.quote_valid(value, p, NOW.date()) == valid
 
 
-def test_forecaster_endpoints_saved_raw_hash(monkeypatch, scenario):
+@pytest.mark.parametrize('office', ['EAX', 'BOU'])
+def test_forecaster_endpoints_saved_raw_hash(monkeypatch, scenario, office):
     db, rec, fac, _ = scenario
     seen = []
     def get(url, **kwargs):
         seen.append(url)
         code = 'AFD' if 'AFD' in url or url.endswith('a'*36) else 'HWO'
         data = {'@graph': [{'id': ('a' if code == 'AFD' else 'b')*36, 'issuanceTime': utcnow().isoformat()}]} if '/types/' in url else {
-            'productCode': code, 'issuingOffice': 'KEAX', 'issuanceTime': utcnow().isoformat(), 'productText': 'No significant hazards Tuesday.'}
+            'productCode': code, 'issuingOffice': 'K' + office, 'issuanceTime': utcnow().isoformat(), 'productText': 'No significant hazards Tuesday.'}
         return httpx.Response(200, json=data, request=httpx.Request('GET', url))
     monkeypatch.setattr(forecaster.httpx, 'get', get)
-    products = forecaster.collect(rec.operating_date)
+    products = forecaster.collect(rec.operating_date, office)
     store_evidence(db, products, fac.id, rec.evaluation_id)
     db.commit()
     assert len(seen) == 4 and all(url.startswith('https://api.weather.gov/products/') for url in seen)
+    assert any(url.endswith('/locations/' + office) for url in seen)
     from app.snapshots import path_for
     for p in products:
         assert p.value['authority'] == 'official_federal'
+        assert p.value['office'] == office
         assert hashlib.sha256(path_for(p.snapshot_hash).read_bytes()).hexdigest() == p.snapshot_hash
 
 

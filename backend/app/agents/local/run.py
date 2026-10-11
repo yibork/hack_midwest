@@ -75,8 +75,12 @@ class LocalPass:
         self.plan = plan_override or coordinator.choose(alerts, self.fac, new_state(**self.ids), settings.agent_timeout,
                                        use_model=self.use_models)
         srcs = [s for s in ls.sources() if s.agent in self.plan["agents"]]
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            results = list(pool.map(ls.fetch, srcs))
+        if self.facility.demo_origin_id:
+            from ...demo_location import local_feeds
+            results = local_feeds(self.facility, srcs)
+        else:
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                results = list(pool.map(ls.fetch, srcs))
         evidence = [r.to_evidence() for r in results]
         by_agent: dict[str, list[dict]] = {}
         for r in results:

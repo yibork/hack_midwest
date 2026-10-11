@@ -176,8 +176,14 @@ def health():
 
 @public.get("/facilities", response_model=list[schemas.Facility])
 def list_facilities(db: Session = Depends(get_db)):
-    return db.scalars(select(models.Facility).where(models.Facility.temporary.is_(False))
+    facilities = db.scalars(select(models.Facility).where(models.Facility.temporary.is_(False), models.Facility.demo_origin_id.is_(None))
                       .order_by(models.Facility.name)).all()
+    if settings.demo_mode:
+        current = db.get(models.DemoState, "usda-kc-demo")
+        active = db.get(models.Facility, current.active_facility_id) if current and current.active_facility_id else None
+        if active and active.demo_origin_id:
+            facilities = [active if f.id == active.demo_origin_id else f for f in facilities]
+    return facilities
 
 
 @public.get("/facilities/{facility_id}", response_model=schemas.Facility)

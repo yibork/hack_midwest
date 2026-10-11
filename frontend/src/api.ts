@@ -17,6 +17,8 @@ export interface Facility {
   access_routes: AccessSegment[];
   operating_days: number[] | null;
   temporary: boolean;
+  demo_origin_id?: string | null;
+  nws_office?: string | null;
 }
 
 export interface AccessSegment {
@@ -171,6 +173,8 @@ export interface CoverageItem {
 }
 
 export interface PeopleSummary {
+  exposure_status?: 'current' | 'unknown';
+  exposure_note?: string | null;
   posture: Posture;
   params: Record<string, string | number>;
   clock: DecisionClock;
@@ -229,6 +233,9 @@ export interface EmployeePublic {
 }
 
 export interface ChannelResult {
+  status?: 'delivered' | 'simulated' | 'failed';
+  message?: string;
+  http_status?: number | null;
   sent_at: string | null;
   ok: boolean;
   error: string | null;
@@ -560,7 +567,8 @@ export const api = {
   },
   demoState: () => request<{enabled: boolean; mode: string; label: string; recommendation_id: string | null; facility_id: string; captured_at: string | null}>("/demo/state"),
   demoRecordings: () => request<{id: string; captured_at: string; label: string}[]>("/demo/recordings"),
-  demoScenario: (mode: string, recording_id?: string) => post<RecommendationDetail>("/demo/scenario", {mode, recording_id}),
+  demoScenario: (mode: string, recording_id?: string, alert_id?: string) => post<RecommendationDetail>("/demo/scenario", {mode, recording_id, alert_id}),
+  demoNationalAlerts: () => request<{alerts: NationalAlert[]; retrieved_at: string; status: string; snapshot_hash: string | null; note: string}>("/demo/national-alerts"),
   demoReset: () => post<{recordings_retained: boolean}>("/demo/reset"),
   demoDeliveryStatus: () => request<{employee_id: string; ntfy_topic: string | null; last_delivery: {at: string; ok: boolean; error: string | null; kind: string} | null}[]>("/demo/delivery-status"),
   investigate: (id: string, body: InvestigationRequest) => request<{investigation_id: string}>(`/recommendations/${id}/investigate`, {method: 'POST', body: JSON.stringify(body), signal: AbortSignal.timeout(15000)}),

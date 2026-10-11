@@ -33,6 +33,24 @@ def clear_cache():
 
 SEVERITY_RANK = {"Extreme": 0, "Severe": 1, "Moderate": 2, "Minor": 3}
 URGENCY_RANK = {"Immediate": 0, "Expected": 1, "Future": 2, "Past": 3}
+CERTAINTY_RANK = {"Observed": 0, "Likely": 1, "Possible": 2, "Unlikely": 3, "Unknown": 4}
+
+
+def handled_demo_events():
+    """Only verified, explicitly named policy hazards, not the generic extreme rule."""
+    from ..rules.engine import load_policy
+    return {event for rule in load_policy().rules if rule["verified"] and rule.get("hazard") != "any"
+              for clause in rule["condition"]["any"] if clause["type"] == "alert"
+              for event in clause.get("events", [])}
+
+
+def demo_alert_eligible(alert: dict, now: datetime, events=None) -> bool:
+    events = handled_demo_events() if events is None else events
+    onset, end = parse_dt(alert.get("onset")), parse_dt(alert.get("ends"))
+    # Ongoing alerts qualify too: otherwise warnings already in force disappear from the demo.
+    return (alert.get("event") in events and SEVERITY_RANK.get(alert.get("severity"), 9) <= 2
+            and onset is not None and onset <= now + timedelta(hours=24)
+            and end is not None and end > now)
 # UGC prefixes of marine zones. Alerts covering only water can't be evaluated as a facility.
 MARINE_UGC = ("AMZ", "ANZ", "GMZ", "PZZ", "PKZ", "PHZ", "PMZ", "PSZ", "LCZ", "LEZ", "LHZ", "LMZ", "LOZ", "LSZ", "SLZ")
 
@@ -148,22 +166,38 @@ def parse_alert(feature: dict) -> dict:
 
 
 def _centroid(geometry: dict | None) -> tuple[float, float] | None:
-    """Rough centroid: mean of outer-ring vertices. Good enough to pick a point to evaluate."""
+    """Area-weighted GeoJSON polygon centroid; remove holes and unwrap the dateline."""
     if not geometry:
         return None
     gtype, coords = geometry.get("type"), geometry.get("coordinates")
     if gtype == "Polygon":
-        rings = [coords[0]]
+        polygons = [coords]
     elif gtype == "MultiPolygon":
-        rings = [poly[0] for poly in coords]
+        polygons = coords
     elif gtype == "Point":
         return coords[1], coords[0]
     else:
         return None
-    pts = [pt for ring in rings for pt in ring]
-    if not pts:
+    if not polygons or not polygons[0] or not polygons[0][0]:
         return None
-    return sum(p[1] for p in pts) / len(pts), sum(p[0] for p in pts) / len(pts)
+    anchor = polygons[0][0][0][0]
+    weight = sx = sy = 0.0
+    fallback = []
+    for polygon in polygons:
+        for index, ring in enumerate(polygon):
+            pts = [((lon - anchor + 180) % 360 - 180 + anchor, lat) for lon, lat, *rest in ring]
+            fallback += pts if index == 0 else []
+            pairs = list(zip(pts, pts[1:] + pts[:1]))
+            twice_area = sum(x * yy - xx * y for (x, y), (xx, yy) in pairs)
+            if abs(twice_area) < 1e-12:
+                continue
+            cx = sum((x + xx) * (x * yy - xx * y) for (x, y), (xx, yy) in pairs) / (3 * twice_area)
+            cy = sum((y + yy) * (x * yy - xx * y) for (x, y), (xx, yy) in pairs) / (3 * twice_area)
+            area = abs(twice_area) * (1 if index == 0 else -1)
+            weight, sx, sy = weight + area, sx + cx * area, sy + cy * area
+    if abs(weight) > 1e-12:
+        return sy / weight, (sx / weight + 180) % 360 - 180
+    return (sum(p[1] for p in fallback) / len(fallback), (sum(p[0] for p in fallback) / len(fallback) + 180) % 360 - 180) if fallback else None
 
 
 # ---------------------------------------------------------------- public API
@@ -327,20 +361,27 @@ def collect_point_evidence(lat: float, lon: float, now: datetime | None = None):
     return evidence, point
 
 
-def get_active_alerts_national(limit: int = 20):
+def get_active_alerts_national(limit: int = 20, *, demo_only: bool = False):
     """-> (top `limit` NationalAlerts by severity/urgency, list of Evidence)"""
     def parse(data):
         alerts = []
+        events = handled_demo_events() if demo_only else None
+        now = utcnow()
         for f in data.get("features", []):
             ugc = (f.get("properties", {}).get("geocode") or {}).get("UGC") or []
             if ugc and all(z.startswith(MARINE_UGC) for z in ugc):
                 continue
             a = parse_alert(f)
+            if demo_only and (f.get("properties", {}).get("status") not in (None, "Actual")
+                              or not demo_alert_eligible(a, now, events)):
+                continue
             c = _centroid(f.get("geometry"))
             zones = f.get("properties", {}).get("affectedZones") or []
             alerts.append((a, c, zones[0] if zones else None))
         alerts.sort(key=lambda x: (SEVERITY_RANK.get(x[0]["severity"], 9),
                                    URGENCY_RANK.get(x[0]["urgency"], 9),
+                                   CERTAINTY_RANK.get(x[0]["certainty"], 9),
+                                   x[0]["id"] or "",
                                    x[1] is None))
         top = alerts[:limit]
         return top, {"count": len(alerts), "top_ids": [a["id"] for a, _, _ in top]}
@@ -354,6 +395,8 @@ def get_active_alerts_national(limit: int = 20):
 
     # Zone-based alerts have no geometry; look up the first affected zone's shape instead.
     def zone_centroid(zone_url):
+        if not zone_url.startswith(f"{BASE}/zones/"):
+            return None, unknown_evidence("zone_geometry", "Zone location unavailable", "Zone URL not allowlisted")
         _, zev = _call("zone_geometry", zone_url, None, lambda d: (d, {"id": d.get("id")}),
                        note="Zone shape used to place a zone-based alert on the map.",
                        valid_for=timedelta(days=1))

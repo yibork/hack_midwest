@@ -125,6 +125,10 @@ def create_notice(db: Session, decision: models.Decision, now: datetime | None =
         evaluation_id=rec.evaluation_id, facility_id=facility.id, budget_key=f"notice:{notice.id}",
         wait_for_predraft=rec.id)
     for p in plan.planned:
+        if facility.demo_origin_id and p.included:
+            label = (rec.scenario_context or {}).get("label", "Real NWS evidence · Synthetic relocated facility (demo)")
+            p.subject = f"DEMO (real NWS): {p.subject}"
+            p.message = f"{label}\nHome-zone exposure and local roads: not available for this location.\n{p.message}"
         if rec.scenario_kind and p.included:
             label = "SIMULATED" if rec.scenario_kind == "simulated" else "REPLAY (not current conditions)"
             p.subject, p.message = f"{label}: {p.subject}", f"{label}\n{p.message}"
@@ -160,17 +164,34 @@ def deliver(person: models.Employee, channels: list[str], subject: str, body: st
     Returns {channel: {sent_at, ok, error, fallback}} for the record."""
     render = frozenset(person.accommodation_needs or [])
     results: dict[str, dict] = {}
+    from ..seed import PERSONAS, emp_id
+    persona = settings.demo_mode and person.id in {emp_id(key) for key in PERSONAS}
 
     def one(ch: str, fallback: bool = False):
+        if settings.demo_mode and ((ch == "push" and not person.ntfy_topic) or (ch == "email" and not persona)):
+            reason = "simulated: synthetic employee" + (", no device" if ch == "push" else "")
+            results[ch] = {"sent_at": None, "attempted_at": utcnow().isoformat(), "ok": False,
+                           "status": "simulated", "message": reason, "error": None, "fallback": fallback}
+            return
         if ch == "push":
             ok, err = send_push(person.ntfy_topic, subject, body, ack)
+        elif settings.demo_mode:
+            if not settings.demo_email:
+                ok, err = False, "DEMO_EMAIL is not configured"
+            else:
+                first = f"This demo message was addressed to {person.name} ({person.role})."
+                email_body = first + "\n\n" + body
+                ok, err = send_email(settings.demo_email, f"[Demo -> {person.name}] {subject}",
+                                     email_body, msg.html_body(email_body, render), demo=True)
         else:
             ok, err = send_email(person.email, subject, body, msg.html_body(body, render))
-        results[ch] = {"sent_at": utcnow().isoformat(), "ok": ok, "error": err, "fallback": fallback}
+        results[ch] = {"sent_at": utcnow().isoformat() if ok else None, "attempted_at": utcnow().isoformat(),
+                       "ok": ok, "status": "delivered" if ok else "failed", "error": str(err) if err else None,
+                       "http_status": getattr(err, "http_status", None), "fallback": fallback}
 
     for ch in channels:
         one(ch)
-    if "push" in results and not results["push"]["ok"] and "email" not in results:
+    if "push" in results and results["push"]["status"] == "failed" and "email" not in results:
         one("email", fallback=True)
     return results
 
@@ -182,7 +203,8 @@ def send_notice(db: Session, notice_id: str) -> list[models.Notification]:
         if notice is None or notice.archived_at is not None or db.get(models.Decision, notice.decision_id) is None:
             raise NoDecisionError(f"no decision for notice {notice_id}; nothing is sent without an approval record")
         rows = list(db.scalars(select(models.Notification).where(models.Notification.notice_id == notice_id)))
-        todo = sorted((n for n in rows if n.included and n.sent_at is None and n.message),
+        todo = sorted((n for n in rows if n.included and n.sent_at is None and n.message
+                       and not (n.channel_results and all(v.get("status") == "simulated" for v in n.channel_results.values()))),
                       key=lambda n: (WAVE_ORDER.get(n.wave, 3), n.notify_by.timestamp() if n.notify_by else float("inf"), n.id))
         people = {e.id: e for e in db.scalars(select(models.Employee).where(
             models.Employee.id.in_([n.employee_id for n in todo])))}
@@ -190,18 +212,21 @@ def send_notice(db: Session, notice_id: str) -> list[models.Notification]:
         for n in todo:
             n.channel_results = deliver(people[n.employee_id], n.channels_planned, n.subject or "Closure Call",
                                         n.message, ack=ack_url(settings.public_base_url, n.id) if n.requires_ack else None)
-            n.sent_at = utcnow()
-            record.append(db, "notification.sent", {
+            n.sent_at = utcnow() if any(v["ok"] for v in n.channel_results.values()) else None
+            event_type = "notification.sent" if n.sent_at else (
+                "notification.simulated" if all(v["status"] == "simulated" for v in n.channel_results.values())
+                else "notification.failed")
+            record.append(db, event_type, {
                 "notice_id": notice_id, "notification_id": n.id, "employee_id": n.employee_id,
                 "name": people[n.employee_id].name, "message_type": n.message_type, "wave": n.wave,
                 "change": n.change, "reason_codes": n.reason_codes, "drafted_by": n.drafted_by,
-                "channels": {k: {"ok": v["ok"], "error": v["error"], "fallback": v.get("fallback", False)}
-                             for k, v in n.channel_results.items()},
+                "channels": n.channel_results,
             }, facility_id=notice.facility_id, evaluation_id=rec.evaluation_id)
         if notice.sent_at is None:
             notice.sent_at = utcnow()
             record.append(db, "notice.sent", {
-                "notice_id": notice_id, "version": notice.version, "sent": len(todo),
+                "notice_id": notice_id, "version": notice.version, "sent": sum(n.sent_at is not None for n in todo),
+                "simulated": sum(v.get("status") == "simulated" for n in todo for v in n.channel_results.values()),
                 "not_sent_unchanged": sum(1 for n in rows if n.change == "unchanged"),
                 "by_wave": {w: sum(1 for n in todo if n.wave == w) for w in ("1", "2", "fyi")},
             }, facility_id=notice.facility_id, evaluation_id=rec.evaluation_id)
@@ -264,12 +289,12 @@ def call_in(db: Session, notice_id: str, body: schemas.CallInIn, now: datetime |
     db.add(n)
     db.flush()
     n.channel_results = deliver(person, n.channels_planned, subject, text, ack=facts.ack_url)
-    n.sent_at = utcnow()
+    n.sent_at = utcnow() if any(v["ok"] for v in n.channel_results.values()) else None
     rec = db.get(models.Recommendation, db.get(models.Decision, notice.decision_id).recommendation_id)
     record.append(db, "call_in.sent", {
         "notice_id": notice_id, "notification_id": nid, "employee_id": person.id, "name": person.name,
         "function": item.code, "manager_name": body.manager_name.strip(), "coverage_before": item.label,
-        "channels": {k: {"ok": v["ok"], "error": v["error"]} for k, v in n.channel_results.items()},
+        "channels": n.channel_results,
     }, facility_id=notice.facility_id, evaluation_id=rec.evaluation_id)
     db.commit()
     return n

@@ -1,5 +1,41 @@
 # Local signal sources
 
+## Live national demo (verified 2026-10-11 UTC)
+
+The presenter scans `/api/demo/national-alerts`, backed by the actual
+[NWS active-alert API](https://api.weather.gov/alerts/active?status=actual).
+Only named, verified policy hazards (wind, flood/flash flood, convective warnings and winter)
+with Moderate-or-higher severity qualify. Alerts may be ongoing or start within 24 hours;
+expired alerts and Test/Exercise products do not qualify. The top five are ranked by severity,
+urgency and certainty. No mock fallback is used. Polygon centroids are area-weighted; alerts
+without polygons use their first affected zone, restricted to `api.weather.gov/zones/`.
+
+Selecting a location clones the synthetic KC facility/assignments/critical functions without
+changing KC, employee IDs or ntfy topics. Access-segment offsets are translated as a synthetic
+pattern, not asserted to be real roads in that state. `/points/{lat},{lon}` must confirm the
+local timezone and forecast office. Real point alerts/hourly/grid forecasts are fetched and
+saved. The selected CAP alert additionally cites the saved national response and retrieval
+time, so an empty point-alert result cannot hide the presenter's selection. Target date is
+the onset's local date, or today for an ongoing alert, treated as a demo workday; the clock
+and commute/operating windows stay real. A short-lived alert outside those windows may yield
+Normal operations. Never force it to fire or shift its timestamps.
+
+Original KC home zones, local adapters and KCDM7 are **not available for this location**;
+they remain unknown on rechecks and sweeps, not empty/clear feeds. No long-distance KC commute
+corridors are drawn. Forecaster products use the confirmed local office, not EAX. Missing
+coverage lowers confidence without erasing a real warning's posture. All notifications and
+memos distinguish live evidence from the synthetic relocated facility; approval/Send guards
+are unchanged. Reset archives all relocated demo work too, retaining evidence and hash chains.
+
+Winter category definitions were opened at
+[NWS winter warnings/advisories](https://www.weather.gov/safety/winter-ww), and KC amounts at
+[EAX winter criteria](https://www.weather.gov/eax/eaxwwacriteria2): warning snow ≥5 inches or
+sleet ≥0.5 inch (or impactful combinations), planar ice ≥0.25 inch for Ice Storm Warning,
+and advisory snow 1–<5 inches or ice <0.25 inch, with forecaster discretion. These KC amounts
+are references only outside EAX. Policy 1.0.2 maps the actual winter/ice warning categories to
+Closure, and Winter Weather Advisory to Delayed arrival; those postures are facility policy
+choices, not NWS instructions. The SIMULATED winter scenario uses these same verified rules.
+
 The local agents (roads, schools, public safety, news) read **only** the URLs in
 [`backend/app/sources/registry.yaml`](../backend/app/sources/registry.yaml). This page records how
 each one was chosen and checked. Research date: 2026-10-10.

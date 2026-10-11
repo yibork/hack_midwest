@@ -31,6 +31,12 @@ EXPOSURE_CODES = {"HOME_IN_WARNING_AREA", "ROUTE_CLOSED"}
 # ---------------------------------------------------------------- helpers
 
 def facility_of(db: Session, person_id: str) -> models.Facility:
+    from .demo import settings as demo_settings
+    if demo_settings.demo_mode:
+        current = db.get(models.DemoState, "usda-kc-demo")
+        if current and current.active_facility_id and db.scalar(select(models.Assignment.id).where(
+                models.Assignment.employee_id == person_id, models.Assignment.facility_id == current.active_facility_id).limit(1)):
+            return db.get(models.Facility, current.active_facility_id)
     rows = db.scalars(select(models.Assignment).where(models.Assignment.employee_id == person_id)).all()
     pick = next((a for a in rows if a.kind == "detail_in"), None) or next((a for a in rows if a.kind == "permanent"), None)
     facility = db.get(models.Facility, pick.facility_id) if pick else None

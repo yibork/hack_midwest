@@ -221,6 +221,13 @@ are stable; public ntfy topics append `DEMO_TOPIC_SUFFIX` once. Maria, Dana, Jor
 Priya and Pat follow the presentation roster. Lee's already-teleworking instruction remains an
 email-only FYI; Jordan is unscheduled and requires an explicit manager call-in.
 
+Demo email delivery is restricted to the seven stable persona IDs and redirected to
+`DEMO_EMAIL` using `RESEND_FROM`, with an addressed-to preface and `[Demo -> Name]` subject.
+Other synthetic emails and pushes without a personal device are recorded as `simulated`,
+not sent or failed, and do not start acknowledgment timers. Confirmation totals count channel
+deliveries (push plus email), simulated channel attempts and failed channel attempts separately.
+Provider failures retain a redacted message and HTTP status in the delivery record.
+
 The winter scenario saves SIMULATED alerts, wind/ice, I-70 access and home-zone inputs, then
 uses the unchanged policy and people engines. The synthetic clock is explicitly 04:00 local
 on today (treated as a workday); 65 mph gusts meet the wind closure rule, while ice is context,
@@ -228,7 +235,10 @@ not an invented federal threshold. Replay clones references to saved raw bytes a
 original retrieval times. Neither mode runs live investigation tools. Live exposure uses only
 the current recommendation's evidence IDs, including revisions; global demo injections cannot
 leak into a live evaluation. The national scenario selects the most severe located active US
-alert and evaluates a temporary facility there.
+alert list for a presenter selection and evaluates a cloned synthetic facility there. The clone
+has nullable `demo_origin_id`/`nws_office` metadata, translated synthetic access segments and
+copied assignments/functions; employees, phone topics and KC are unchanged. See sources.md for
+filtering, provenance, real target windows, local coverage limitations and policy 1.0.2.
 
 Reset adds `archived_at` to active recommendation/decision/notice/notification/investigation/
 staff-question rows and cancels pending jobs. It joins investigation and dispatch locks and

@@ -91,7 +91,7 @@ def watch_tick(now: datetime | None = None) -> list[dict]:
     now = now or utcnow()
     out = []
     with SessionLocal() as db:
-        facilities = db.scalars(select(models.Facility).where(models.Facility.temporary.is_(False))).all()
+        facilities = db.scalars(select(models.Facility).where(models.Facility.temporary.is_(False), models.Facility.demo_origin_id.is_(None))).all()
         for f in facilities:
             fac = schemas.Facility.model_validate(f)
             day, _, _ = pipeline.choose_target(fac, now)

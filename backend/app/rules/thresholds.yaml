@@ -16,8 +16,11 @@
 #   operating_day    = commute start   .. departure end
 #
 # Source definitions are verified; posture mappings remain this prototype's facility policy.
-version: "1.0.1"
+version: "1.0.2"
 change_log:
+  - version: "1.0.2"
+    date: "2026-10-11"
+    changes: "Added verified Winter Storm Warning, Ice Storm Warning and Winter Weather Advisory definitions with explicit facility posture mappings; EAX numeric criteria remain local references, not national thresholds."
   - version: "1.0.1"
     date: "2026-10-11"
     changes: "Added facility-only verified forecaster confidence context; all posture thresholds and lead-time caps unchanged."
@@ -142,6 +145,60 @@ rules:
       Facility policy v1.0 delays arrival before opening and proposes early departure after
       opening only when safe; an active warning requires shelter guidance, not immediate travel.
 
+  - id: winter_storm
+    description: Winter Storm Warning covering the facility during the operating day
+    hazard: winter
+    condition:
+      any:
+        - type: alert
+          events: [Winter Storm Warning]
+          window: operating_day
+    posture: closure
+    group: federal
+    verified: true
+    citation: &winter_definitions
+      title: Winter Weather Warnings, Watches and Advisories
+      publisher: NOAA National Weather Service
+      url: https://www.weather.gov/safety/winter-ww
+      section_or_page: "Warnings: Winter Storm Warning and Ice Storm Warning; Advisories: Winter Weather Advisory"
+      retrieved_at: "2026-10-11T05:11:55Z"
+    justification: >
+      NWS defines a Winter Storm Warning as significant snow, ice, sleet or blowing snow,
+      with potentially difficult or impossible travel. Closure during the target operating
+      day is our Facility policy v1.0 travel-safety choice, not an NWS closure instruction.
+  - id: ice_storm
+    description: Ice Storm Warning covering the facility during the operating day
+    hazard: winter
+    condition:
+      any:
+        - type: alert
+          events: [Ice Storm Warning]
+          window: operating_day
+    posture: closure
+    group: federal
+    verified: true
+    citation: *winter_definitions
+    justification: >
+      NWS describes dangerous or impossible travel and likely tree or power-line damage
+      under an Ice Storm Warning. Our Facility policy v1.0 chooses closure; issuing-office
+      criteria determine the warning, and EAX ice amounts are not imposed nationwide.
+  - id: winter_advisory
+    description: Winter Weather Advisory covering the facility during the operating day
+    hazard: winter
+    condition:
+      any:
+        - type: alert
+          events: [Winter Weather Advisory]
+          window: operating_day
+    posture: delayed_arrival
+    group: federal
+    verified: true
+    citation: *winter_definitions
+    justification: >
+      NWS advisories describe wintry conditions below warning criteria that can still
+      complicate travel. Delayed arrival is our Facility policy v1.0 choice, subject to
+      manager review of a safer window rather than an assumption that roads are clear.
+
 # Local signals (agents/local). Facts are extracted by agents and validated in code; only these
 # rules decide what they change. Nothing from local signals can lower the posture.
 local_signals:
@@ -157,6 +214,19 @@ local_signals:
 
 # Reference-only entries are shown on Thresholds; they are not new automatic closure rules.
 references:
+  - id: eax_winter_criteria
+    group: federal
+    description: EAX local winter product criteria (KC only)
+    condition: "Winter Storm Warning: snow at least 5 inches or sleet at least 0.5 inch, or impactful snow/freezing-rain combinations. Ice Storm Warning: planar ice at least 0.25 inch. Advisory: snow 1 to less than 5 inches or ice less than 0.25 inch, with forecaster discretion including black ice."
+    posture: Reference only; use the issuing office's alert outside EAX
+    verified: true
+    citation:
+      title: WFO EAX Weather Product Criteria — Winter and Freezing Rain
+      publisher: NWS Kansas City/Pleasant Hill (EAX)
+      url: https://www.weather.gov/eax/eaxwwacriteria2
+      section_or_page: "Winter Storm Warning; Winter Weather Advisory; Ice Storm Warning"
+      retrieved_at: "2026-10-11T05:11:55Z"
+    justification: EAX publishes these local amounts and allows forecaster discretion based on impacts. National demo relocation uses actual warning categories from the local issuing office, not invented nationwide snow or ice thresholds.
   - id: nws_nonprecipitation
     group: federal
     description: National non-precipitation criteria

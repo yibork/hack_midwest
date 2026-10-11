@@ -78,17 +78,21 @@ def run(db, row, rec):
             step("NWS facility alerts", lambda: weather_agent.fetch_alerts(fac, row.id))
             step("NWS hourly and gridpoint forecast", lambda: weather_agent.fetch_forecast(fac, row.id, operating_date=rec.operating_date))
             step("NWS employee home zones", lambda: exposure.collect(fac.id, row.id, people, save_raw=True))
-            step("NOAA KCDM7 river gauge", lambda: save(nwps.collect(windows)))
+            from .demo_location import unknown, local_feeds
+            step("NOAA KCDM7 river gauge", lambda: save([unknown("river_categories", "nwps")] if fac.demo_origin_id else nwps.collect(windows)))
             fresh += weather_agent.evidence_for(row.id)
             products = []
             def fetch_products():
-                products.extend(forecaster.collect(rec.operating_date))
+                products.extend(forecaster.collect(rec.operating_date, fac.nws_office) if fac.demo_origin_id else forecaster.collect(rec.operating_date))
                 save(products)
-            step("NWS EAX forecaster products", fetch_products)
+            step("NWS " + (fac.nws_office or "EAX") + " forecaster products", fetch_products)
             sources = ls.sources()
             inv.event(state, "agent.tool_call_start", tool="Local roads, schools, public safety and news")
-            with ThreadPoolExecutor(max_workers=8) as pool:
-                feeds = list(pool.map(ls.fetch, sources))
+            if fac.demo_origin_id:
+                feeds = local_feeds(fac, sources)
+            else:
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    feeds = list(pool.map(ls.fetch, sources))
             inv.event(state, "agent.tool_call_end", tool="Local roads, schools, public safety and news", summary=f"{len(feeds)} allowlisted sources checked")
             old_feeds = {e.value.get("source_id"): e for e in old if e.kind == "local_feed" and isinstance(e.value, dict)}
             work, src_of = {}, {}
