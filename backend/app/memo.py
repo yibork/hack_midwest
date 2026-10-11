@@ -101,7 +101,10 @@ def render(db, decision):
         label = "REPLAY · " if e.scenario_kind == "replay" else "SIMULATED · " if simulated(e) else ""
         digest = e.saved_copy_hash or e.snapshot_hash
         saved = link(f"/api/snapshots/{digest}", "Saved copy" + (" (normalized evidence)" if e.saved_copy_kind == "normalized" else "")) if digest else "Saved response not available"
-        evidence_rows.append([f'<span id="evidence-{esc(e.id)}">{esc(label + e.source + ': ' + e.kind.replace('_', ' '))}</span><br>' + link(e.url, "Source (live — may have changed)") if e.url else esc(label + e.source + ': ' + e.kind.replace('_', ' ')) + "<br>No live source",
+        source_name = esc(label + e.source + ': ' + e.kind.replace('_', ' '))
+        source_cell = f'<span id="evidence-{esc(e.id)}">{source_name}</span><br>'
+        source_cell += link(e.url, "Source (live — may have changed)") if e.url else "No live source"
+        evidence_rows.append([source_cell,
                               when(e.source_time), when(e.retrieved_at), esc(authority), esc(e.status), saved,
                               f"<code>{esc(digest)}</code>"])
     sections += ["<h2>Evidence and saved copies</h2>", table(["Source", "Source time", "Retrieved", "Authority", "Status", "Saved copy", "SHA-256"], evidence_rows)]
