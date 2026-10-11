@@ -28,7 +28,7 @@ Use the **facility manager** demo role. This is a prototype with synthetic emplo
 
 ## How it works
 
-![Closure Call decision workflow](../closure-call-architecture.png)
+![Closure Call decision workflow](closure-call-architecture.png)
 
 *Solid arrows show the workflow. Dashed arrows show information saved to the decision record.*
 
@@ -70,7 +70,7 @@ Choose the **Facility manager** demo role. Start by evaluating a facility, then 
 *National scan demonstrates live alerts. Use the seeded facility to demonstrate the employee notification workflow; temporary national-scan facilities do not have an employee roster.* -->
 ## AWS: how we use Strands Agents SDK
 
-![Strands agents connected to Akamai AI inference, with rules-based recommendations and human approval](../closure-call-strands-agents.png)
+![Strands agents connected to Akamai AI inference, with rules-based recommendations and human approval](closure-call-strands-agents.png)
 
 **Strands provides the agent framework. Akamai provides the AI inference.** The application directly depends on `strands-agents[openai]` and creates real Strands `Agent` instances.
 
@@ -102,15 +102,14 @@ PostgreSQL is supported through `DATABASE_URL`; when unset, production uses SQLi
 
 ## CI/CD and deployment
 
-![Closure Call CI/CD pipeline, cloud hosting and database connections](../closure-call-cicd-cloud.png)
+![Closure Call CI/CD pipeline, cloud hosting and database connections](closure-call-cicd-cloud.png)
 
-[CI](../.github/workflows/ci.yml) runs backend tests, frontend tests and the frontend build on pushes and pull requests. [Deployment](../.github/workflows/deploy.yml) can run after successful CI on a push to `main`, unless `AUTO_DEPLOY=false`, or be triggered manually.
+[CI](../.github/workflows/ci.yml) runs backend tests, frontend tests and the frontend build on pushes and pull requests. Deployment can run after successful CI on a push to `main`.
 
-The deployment connects over SSH and runs [deploy.sh](../scripts/deploy.sh). Docker builds React and packages it with FastAPI; Caddy forwards public traffic and supports HTTPS for a configured domain. A failed deployment health gate triggers an attempt to restore the previous code version.
+The deployment connects over SSH. Docker builds React and packages it with FastAPI; Caddy forwards public traffic and supports HTTPS for a configured domain. A failed deployment health gate triggers an attempt to restore the previous code version.
 
-Server setup uses `~/closure-call` and an external environment file, defaulting to `/home/deploy/closure-call.env` (mode `600`). Set `SITE_DOMAIN` and `PUBLIC_BASE_URL` for the public origin, plus inference and any delivery credentials. GitHub repository secrets are `DEPLOY_HOST`, `DEPLOY_USER` and `DEPLOY_SSH_KEY`; `PUBLIC_URL` is an optional repository variable for the deployment summary. See [server_setup.sh](../scripts/server_setup.sh) and [compose.prod.yml](../compose.prod.yml).
 
-The deployment script currently fetches the latest `main`, rather than pinning the exact CI-tested commit. Its health gate checks HTTP availability and inference configuration; it does not prove a successful model call or require a healthy database result. Code rollback does not reverse database changes.
+The deployment script currently fetches the latest `main`, rather than pinning the exact CI-tested commit.
 
 <!-- ## Run locally
 
@@ -121,10 +120,6 @@ cp .env.example .env
 # Edit .env with your Akamai workshop credentials and NWS contact User-Agent.
 docker compose up --build
 ```
-
-Open **http://localhost:8000**. Local Compose starts the application and PostgreSQL; startup creates tables and seeds synthetic demo records. No API key is required for NWS. Without valid inference configuration, AI stages use their fallbacks.
-
-For actual delivery, configure `NTFY_TOPIC` or recipient topics and/or `RESEND_API_KEY` with a valid `RESEND_FROM`. `NOTIFY_EMAIL_OVERRIDE` can direct demo email to one test inbox. Set `PUBLIC_BASE_URL` to an address recipients can reach for acknowledgment links. Optional `DEMO_MODE=1` enables labeled scenarios and shortened demonstration timers. Never commit `.env` or credentials. -->
 
 ### Tests
 
