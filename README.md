@@ -21,7 +21,7 @@ Use the **facility manager** demo role. This is a prototype with synthetic emplo
 1. **Show real NWS data.** Open [National scan](https://closurecall.duckdns.org/national), refresh, and select a located active alert. Inspect its source, timestamps, severity, certainty and urgency. This evaluates a temporary facility; it does not have an employee roster.
 2. **Show the complete facility workflow.** Open [Facility](https://closurecall.duckdns.org/facility), choose the seeded Kansas City demo facility and evaluate a target operating day. Show the graded recommendation, threshold observations and margins, confidence, missing data and what would change the result. Wait for preliminary local checks to finish before deciding.
 3. **Show agents doing work.** Follow the agent activity panel and ask an investigation question such as “Is the access road still closed?” Inspect the supporting evidence and any revised recommendation. 
-4. **Approve and notify.** Open [Decide] (https://closurecall.duckdns.org/decide), approve or override with a reason, then inspect who is included or excluded, their instructions and channel routing. Send to configured demo recipients and show an actual receipt and acknowledgment. Unconfigured channels are not successful deliveries.
+4. **Approve and notify.** Open [Decide](https://closurecall.duckdns.org/decide), approve or override with a reason, then inspect who is included or excluded, their instructions and channel routing. Send to configured demo recipients and show an actual receipt and acknowledgment. Unconfigured channels are not successful deliveries.
 5. **Show accountability.** Open [Record](https://closurecall.duckdns.org/record), reconstruct the decision, inspect a saved evidence copy, verify its hash and open the printable decision memo. Follow a threshold link to its citation and facility-policy justification.
 
 <!-- **Live evidence and scenario playback are separate.** Use the national scan for the required real-alert demonstration even if Kansas City has calm weather. A labeled simulated winter scenario or saved replay can demonstrate the roster workflow, but does not replace the live NWS requirement. -->
@@ -72,7 +72,7 @@ Choose the **Facility manager** demo role. Start by evaluating a facility, then 
 
 ![Strands agents connected to Akamai AI inference, with rules-based recommendations and human approval](closure-call-strands-agents.png)
 
-**Strands provides the agent framework. Akamai provides the AI inference.** The application directly depends on `strands-agents[openai]` and creates real Strands `Agent` instances.
+**Strands provides the agent framework. Akamai provides the AI inference.** 
 
 | Agent | Role in the workflow |
 | --- | --- |
@@ -81,30 +81,29 @@ Choose the **Facility manager** demo role. Start by evaluating a facility, then 
 | **Investigator** | Uses bounded tools to check access, commutes, river conditions and local closures, or explains saved evidence in response to manager questions |
 | **Writer and message agents** | Draft explanations and recipient-group wording from validated facts; code retains control of recommendations, recipients and instructions |
 
-Our custom **agent harness** adds execution context, structured output models, call budgets, rate limiting, timeouts, result validation and audit hooks. Failed calls or rejected drafts fall back to direct fetching, code-based extraction or templates as appropriate. Agents have no notification-sending tools; application code sends notices after a stored manager decision.
+Our custom **agent harness** adds execution context, structured output models, call budgets, rate limiting, timeouts, result validation and audit hooks. Failed calls or rejected drafts fall back to direct fetching, code-based extraction or templates as appropriate. 
 
 The distinctive workflow connects **manager questions → tool-based investigation → validated evidence → a rules-based revision → human review**, while preserving the reasons and employee-specific consequences.
 
-Implementation: [agent runtime](../backend/app/agents/runtime.py) · [weather tools](../backend/app/agents/weather_agent.py) · [investigator](../backend/app/investigations.py) · [audit and budget hooks](../backend/app/agents/hooks.py) · [agent documentation](../backend/app/agents/README.md).
 
 ## Akamai: cloud hosting and AI inference
 
-The project’s cloud deployment uses **Akamai Cloud hosting and the Akamai workshop AI inference endpoint**. Inference is configured through `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `CHAT_MODEL`; the OpenAI-compatible interface does not mean the application calls OpenAI-hosted models.
+The project’s cloud deployment uses **Akamai Cloud hosting and the Akamai workshop AI inference endpoint**.
 
+<!-- 
 | Judging area | Project contribution and evidence |
 | --- | --- |
 | **Impact and usefulness** | Helps managers act before employee commutes, communicate individual duties and retain a reconstructable decision record |
-| **Powered by Akamai** | Cloud-hosted application and AI inference through the [model adapter](../backend/app/agents/model.py); [production Compose](../compose.prod.yml) and [server setup](../scripts/server_setup.sh) define the hosting setup |
+| **Powered by Akamai** | Cloud-hosted application and AI inference through the model adapter; production Compose and [server setup](../scripts/server_setup.sh) define the hosting setup |
 | **Technical execution** | Frontend/backend CI checks, persisted evidence, validated AI outputs, fallbacks, health reporting and deployment rollback logic |
-| **Creativity and innovation** | Combines interactive investigation, employee-aware notification planning and verifiable saved evidence around a human decision |
+| **Creativity and innovation** | Combines interactive investigation, employee-aware notification planning and verifiable saved evidence around a human decision | -->
 
-PostgreSQL is supported through `DATABASE_URL`; when unset, production uses SQLite in a persistent volume. **Managed PostgreSQL is optional, not a required deployed service.** Raw evidence snapshots live on persistent disk; object-storage settings exist but object storage is not implemented.
 
 ## CI/CD and deployment
 
 ![Closure Call CI/CD pipeline, cloud hosting and database connections](closure-call-cicd-cloud.png)
 
-[CI](../.github/workflows/ci.yml) runs backend tests, frontend tests and the frontend build on pushes and pull requests. Deployment can run after successful CI on a push to `main`.
+CI runs backend tests, frontend tests and the frontend build on pushes and pull requests. Deployment can run after successful CI on a push to `main`.
 
 The deployment connects over SSH. Docker builds React and packages it with FastAPI; Caddy forwards public traffic and supports HTTPS for a configured domain. A failed deployment health gate triggers an attempt to restore the previous code version.
 
