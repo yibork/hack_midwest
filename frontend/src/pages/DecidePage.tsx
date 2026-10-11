@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { POSTURES, api, type Decision, type Posture, type RecommendationDetail } from "../api";
 import AgentActivity from "../components/AgentActivity";
+import InvestigationPanel from "../components/InvestigationPanel";
 import NoticePanel from "../components/NoticePanel";
 import { PeopleStrip } from "../components/People";
 import { Button, Card, ConfidenceBadge, ErrorBox, Loading, PostureBadge, fmtDateTime, postureLabel, useAsync } from "../components/ui";
@@ -29,7 +30,8 @@ export default function DecidePage() {
   return <DecideFlow key={rec.data.id} rec={rec.data} />;
 }
 
-function DecideFlow({ rec }: { rec: RecommendationDetail }) {
+function DecideFlow({ rec: initial }: { rec: RecommendationDetail }) {
+  const [rec, setRec] = useState(initial);
   const [decision, setDecision] = useState<Decision | null>(rec.decision);
   const [sending, setSending] = useState(false);
   const tz = rec.facility.timezone;
@@ -80,7 +82,9 @@ function DecideFlow({ rec }: { rec: RecommendationDetail }) {
 
         {decision && !rec.facility.temporary && <NoticePanel decision={decision} tz={tz} onSending={setSending} />}
       </div>
-      <AgentActivity evaluationId={rec.evaluation_id} live={sending} />
+      <div className="space-y-4"><InvestigationPanel rec={rec} onRevision={async id => {
+        setRec(await api.recommendation(id)); setDecision(null);
+      }} /><AgentActivity evaluationId={rec.evaluation_id} live={sending} /></div>
     </div>
   );
 }

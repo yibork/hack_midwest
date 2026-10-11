@@ -70,9 +70,9 @@ class LocalPass:
         self.roads_hashes: dict = {}
 
     # ---- phase A
-    def start(self, alerts: list[dict]) -> "LocalPass":
+    def start(self, alerts: list[dict], plan_override: dict | None = None) -> "LocalPass":
         now = utcnow()
-        self.plan = coordinator.choose(alerts, self.fac, new_state(**self.ids), settings.agent_timeout,
+        self.plan = plan_override or coordinator.choose(alerts, self.fac, new_state(**self.ids), settings.agent_timeout,
                                        use_model=self.use_models)
         srcs = [s for s in ls.sources() if s.agent in self.plan["agents"]]
         with ThreadPoolExecutor(max_workers=8) as pool:

@@ -57,7 +57,7 @@ backend/app/
   scheduler.py       re-evaluations 15:00 day before and 04:00 on the day
   record.py          append-only RecordEvent writer (redacts secrets); replay via /api/record/at
   db.py, models.py, schemas.py   SQLAlchemy models, additive auto-migration, Pydantic schemas
-backend/tests/       pytest suite (227 tests at 74c242e); conftest.py blocks live inference
+backend/tests/       pytest suite; conftest.py blocks live inference
 frontend/src/        React 18 + Vite + Tailwind 4 + Leaflet; pages/ (Decide, Facility, Team,
                      MyStatus, Record, Sources, National, Personas, Security), components/
 scripts/             deploy.sh (on the VM), server_setup.sh (one-time VM setup)
@@ -156,6 +156,9 @@ beat the shell environment on purpose.
 ## Status
 
 Done (newest first):
+- Investigation panel: bound target-day tools, persistent model budget, audited revisions,
+  deterministic explanations/rechecks, human-reported site evidence and demo replies
+- `5369b30` verified policy 1.0.0 citations, linked Thresholds page, retained migration script
 - `74c242e` location provenance for every local fact; Leaflet map (`/api/recommendations/{id}/map`)
   with saved-copy links and privacy-aggregated commute corridors
 - `464b831` people summary shows minor road conditions in commute corridors; docs/architecture.md
@@ -168,21 +171,14 @@ Done (newest first):
 - `556ccf6` production deployment (Caddy + compose) and CI/CD to the Linode
 
 Pending, in priority order:
-1. **Threshold citations → policy 1.0.0.** `rules/thresholds.yaml` is `0.1.0-draft` and every
-   `citation` is `TODO: verify`. Replace with real NWS/agency references (human confirms), bump to
-   `1.0.0`. The policy version includes a content hash and is stored on each recommendation.
-2. **Investigation panel.** Manager asks a follow-up ("Is the access road still closed?"); a
-   Strands agent investigates approved sources or explains saved evidence; new findings produce a
-   revised recommendation via the rules engine (never the agent). Needs its own budget key.
-3. **Evidence "Saved copy" links with hash verify.** `/api/snapshots/{sha256}` exists; add
+1. **Evidence "Saved copy" links with hash verify.** `/api/snapshots/{sha256}` exists; add
    saved-copy links on every evidence item and a verify step that recomputes the SHA-256 and
    shows match/mismatch.
 4. **Map with location provenance.** Largely done in `74c242e`; check the remaining gaps (map on
    every relevant page, legend/provenance wording) rather than rebuilding.
-5. **River gauge KCDM7.** Registered in `sources/registry.yaml` (`nwps_kcdm7`), and `nwps` is an
-   allowed Evidence source, but **no client exists**. Add a fetcher for
-   `https://api.water.noaa.gov/nwps/v1/gauges/KCDM7` (+ stageflow forecast), store Evidence, and
-   rules against its official flood categories.
+5. **River gauge KCDM7.** The investigation client now fetches official categories and
+   target-window stageflow forecasts. Categories alone must never assert site inundation;
+   additional facility-specific flood rules would need their own justified policy entries.
 6. **Decision memo + tamper-evident record.** Printable memo per decision; hash-chain RecordEvents
    (each event stores the previous event's hash) with a verify endpoint. Additive columns only.
 7. **Demo reset + scenario switch.** Reset demo state without deleting recorded data (e.g. a new

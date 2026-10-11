@@ -1,7 +1,8 @@
 """All HTTP routes, mounted under /api."""
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -23,6 +24,109 @@ public = APIRouter(prefix="/api")
 def thresholds():
     from .rules.engine import policy_catalog
     return policy_catalog()
+
+
+@router.get("/evidence/{id}", response_model=schemas.Evidence)
+def investigation_evidence(id: str, db: Session = Depends(get_db)):
+    return _get_or_404(db, models.Evidence, id)
+
+
+@router.post("/recommendations/{id}/investigate", status_code=202)
+def investigate(id: str, body: schemas.InvestigationIn, db: Session = Depends(get_db)):
+    from . import investigations
+    return investigations.request(db, _get_or_404(db, models.Recommendation, id), body)
+
+
+@router.get("/investigations/{id}")
+def investigation_result(id: str, db: Session = Depends(get_db)):
+    from . import investigations
+    return investigations.detail(db, _get_or_404(db, models.Investigation, id))
+
+
+@router.get("/recommendations/{id}/suggestions")
+def recommendation_suggestions(id: str, db: Session = Depends(get_db)):
+    from . import investigations
+    rec = _get_or_404(db, models.Recommendation, id)
+    _, _, evidence = investigations.context(db, rec)
+    return {"suggestions": investigations.suggestions(rec, evidence), "budget": investigations.budget(db, rec)}
+
+
+@router.get("/recommendations/{id}/investigations")
+def investigation_thread(id: str, db: Session = Depends(get_db)):
+    from . import investigations
+    rec = _get_or_404(db, models.Recommendation, id)
+    key = investigations.root_key(db, rec)
+    rows = db.scalars(select(models.Investigation).where(models.Investigation.budget_key == key)
+                      .order_by(models.Investigation.created_at)).all()
+    return [investigations.detail(db, row) for row in rows]
+
+
+@router.get("/recommendations/{id}/staff-candidates")
+def investigation_staff_candidates(id: str, db: Session = Depends(get_db)):
+    from . import investigations
+    rec = _get_or_404(db, models.Recommendation, id)
+    people = investigations.staff_candidates(db, rec, schemas.InvestigationIn(action="ask_staff", role="facility_ops", question="Site check"))
+    return [{"id": p.id, "name": p.name, "role": p.role} for p in people]
+
+
+@router.post("/staff-questions/{id}/demo-response")
+def demo_staff_response(id: str, body: dict, db: Session = Depends(get_db)):
+    from . import investigations
+    from .config import settings
+    if not settings.demo_mode:
+        raise HTTPException(403, "Answering on a persona's behalf requires DEMO_MODE=1")
+    with investigations._run_lock:
+        return investigations.submit_staff(db, _get_or_404(db, models.StaffQuestion, id), body.get("option"), demo=True)
+
+
+def _staff_token(db, token):
+    import hashlib
+    row = db.scalar(select(models.StaffQuestion).where(models.StaffQuestion.token_hash == hashlib.sha256(token.encode()).hexdigest()))
+    if row is None:
+        raise HTTPException(404, "Unknown staff request")
+    if row.responded_at:
+        raise HTTPException(409, "This request has already been answered")
+    from .db import utcnow
+    if row.expires_at <= utcnow():
+        raise HTTPException(410, "This request expired")
+    return row
+
+
+@public.get("/staff-responses/{token}", response_class=HTMLResponse)
+def staff_response_form(token: str, db: Session = Depends(get_db)):
+    import html
+    from .config import settings
+    row = _staff_token(db, token)
+    investigation = db.get(models.Investigation, row.investigation_id)
+    rec = db.get(models.Recommendation, investigation.recommendation_id)
+    # Opening the link never submits a reply; confirmation requires a POST.
+    buttons = ''.join(f'<button name="option" value="{html.escape(option, quote=True)}">{html.escape(option)}</button> ' for option in row.options)
+    return HTMLResponse(f'<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Site evidence request</title></head><body><h1>Site evidence for {rec.operating_date}</h1><p>{html.escape(row.question)}</p><p>Unsafe means an unsafe site condition during that day’s commute window.</p><form method="post" action="{settings.public_base_url}/api/staff-responses/{token}">{buttons}</form></body></html>', headers={"Referrer-Policy": "no-referrer", "Cache-Control": "no-store"})
+
+
+@public.post("/staff-responses/{token}")
+async def staff_response(token: str, req: Request, db: Session = Depends(get_db)):
+    from . import investigations
+    from urllib.parse import parse_qs
+    raw = await req.body()
+    if len(raw) > 1000:
+        raise HTTPException(413, "Reply is too large")
+    if "application/json" in req.headers.get("content-type", ""):
+        import json
+        try:
+            option = json.loads(raw).get("option")
+        except (ValueError, AttributeError):
+            raise HTTPException(422, "Invalid reply")
+    else:
+        option = parse_qs(raw.decode()).get("option", [None])[0]
+    from starlette.concurrency import run_in_threadpool
+    def submit():
+        with investigations._run_lock:
+            return investigations.submit_staff(db, _staff_token(db, token), option)
+    result = await run_in_threadpool(submit)
+    if "application/json" not in req.headers.get("content-type", ""):
+        return HTMLResponse("<h1>Thank you</h1><p>Your site report was recorded.</p>", headers={"Cache-Control": "no-store"})
+    return result
 
 
 def _get_or_404(db: Session, model, id_: str):
@@ -143,6 +247,8 @@ def decide(rec_id: str, body: schemas.DecisionIn, db: Session = Depends(get_db))
     rec = _get_or_404(db, models.Recommendation, rec_id)
     if rec.status == "preliminary":
         raise HTTPException(409, "Preliminary - road check in progress; decide once it is final.")
+    if db.scalar(select(models.Recommendation.id).where(models.Recommendation.previous_recommendation_id == rec.id).limit(1)):
+        raise HTTPException(409, "This recommendation has been revised; review the latest version before deciding")
     if db.scalar(select(models.Decision).where(models.Decision.recommendation_id == rec_id)):
         raise HTTPException(409, "A decision already exists for this recommendation; re-evaluate to decide again.")
     return services.record_decision(db, rec, body)

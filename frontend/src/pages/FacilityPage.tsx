@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api, newEvaluationId, type EvaluateTarget, type RecommendationDetail } from "../api";
 import AgentActivity from "../components/AgentActivity";
 import RecommendationView from "../components/RecommendationView";
+import InvestigationPanel from "../components/InvestigationPanel";
 import { Button, ErrorBox, Loading, useAsync } from "../components/ui";
 
 export default function FacilityPage() {
@@ -133,7 +134,10 @@ export default function FacilityPage() {
           />
         )}
       </div>
-      <AgentActivity evaluationId={evaluating ? runningEval : rec?.evaluation_id ?? runningEval} live={evaluating || pending} />
+      <div className="space-y-4">
+        {rec && <InvestigationPanel rec={rec} onRevision={async id => latest.setData(await api.recommendation(id))} />}
+        <AgentActivity evaluationId={evaluating ? runningEval : rec?.evaluation_id ?? runningEval} live={evaluating || pending} />
+      </div>
     </div>
   );
 }

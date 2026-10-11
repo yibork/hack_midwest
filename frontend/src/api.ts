@@ -31,7 +31,7 @@ export interface Evidence {
   id: string;
   facility_id: string | null;
   evaluation_id: string | null;
-  source: "nws" | "nwps" | "modot" | "roster" | "demo" | "local";
+  source: "nws" | "nwps" | "modot" | "roster" | "demo" | "local" | "human";
   kind: string;
   value: unknown;
   units: string | null;
@@ -92,6 +92,24 @@ export interface PolicyCatalog {
   rules: PolicyRule[];
 }
 
+export interface InvestigationBudget { used: number; limit: number; label: string }
+export interface InvestigationRequest {
+  question?: string; action?: string; at?: string; employee_id?: string; role?: string; options?: string[];
+}
+export interface RevisionDiff {
+  changed: boolean;
+  changes: Record<string, {before: unknown; after: unknown}>;
+  recipient_counts: {before: unknown; after: unknown};
+}
+export interface Investigation {
+  id: string; recommendation_id: string; question: string; action: string | null; status: string;
+  revised_recommendation_id: string | null; budget: InvestigationBudget;
+  result: {answer?: string; source_label?: string; limitations?: string[]; could_not_answer_because?: string;
+    evidence_ids?: string[]; policy_ids?: string[]; new_evidence_ids?: string[]; tools_used?: string[]; target_date?: string};
+  staff_questions: {id: string; employee_id: string; question: string; options: string[]; status: string;
+    response: string | null; expires_at: string; delivery: {ok: boolean; error?: string}}[];
+}
+
 export interface Recommendation {
   id: string;
   facility_id: string;
@@ -113,6 +131,8 @@ export interface Recommendation {
   rationale_note: string | null; // "AI draft pending" | "AI draft" | "AI draft rejected: <reason> - template used" | ...
   template_rationale: string | null;
   status: "preliminary" | "final" | null; // preliminary: a live road check is running; decisions are blocked
+  previous_recommendation_id?: string | null;
+  revision_diff?: RevisionDiff | null;
 }
 
 export interface DecisionClock {
@@ -511,6 +531,12 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
 }
 
 export const api = {
+  investigate: (id: string, body: InvestigationRequest) => request<{investigation_id: string}>(`/recommendations/${id}/investigate`, {method: 'POST', body: JSON.stringify(body)}),
+  investigations: (id: string) => request<Investigation[]>(`/recommendations/${id}/investigations`),
+  investigation: (id: string) => request<Investigation>(`/investigations/${id}`),
+  suggestions: (id: string) => request<{suggestions: {action: string; label: string}[]; budget: InvestigationBudget}>(`/recommendations/${id}/suggestions`),
+  staffCandidates: (id: string) => request<{id: string; name: string; role: string}[]>(`/recommendations/${id}/staff-candidates`),
+  demoStaffResponse: (id: string, option: string) => request<{recommendation_id: string}>(`/staff-questions/${id}/demo-response`, {method: 'POST', body: JSON.stringify({option})}),
   thresholds: () => request<PolicyCatalog>("/thresholds"),
   health: () => request<{ status: string; demo_mode: boolean }>("/health"),
   facilities: () => request<Facility[]>("/facilities"),

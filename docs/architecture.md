@@ -135,3 +135,41 @@ Sources pages. It uses OpenStreetMap tiles, with attribution. It returns:
 **Corridor privacy.** A cell is shown only if at least 3 corridors cross it. Cells within 3 km of
 any home are dropped, so no home location can be inferred. No API response contains home
 coordinates, and a test checks every role's endpoints for them.
+
+## Manager investigations
+
+`POST /api/recommendations/{id}/investigate` returns an investigation ID immediately. The
+manager thread polls `GET /api/investigations/{id}` (or the recommendation's `/investigations`
+collection); tool progress uses the existing activity stream under that investigation ID.
+`/suggestions` supplies deterministic context chips. The facility page and Decide page both
+show the panel, source labels, cited evidence, policy links and revision differences.
+
+All checks bind to the saved facility, **target date** and commute/work/departure windows.
+The Strands investigator can call only fixed weather, river, commute/access-road and local
+closure tools. Roads reuse the existing geographic relevance checks and road-facts cache.
+No submitted URL is accepted. Record explanations make no tool or model calls. One-tap
+checks, staff requests and scheduled rechecks remain deterministic when inference is unavailable.
+
+Each recommendation chain has a persistent 12-model-call investigation budget, atomically
+charged on every model turn (including retries). AI answers require inline known evidence/policy
+citations, a target date, at most 120 words, supported numbers, and no nonconditional alternate
+posture. Road answers must state a distance or explicitly say it is unknown. Rejected answers
+get one retry with the exact validation reason, then a labeled deterministic summary.
+Normalized source facts enter model context; fetched source text is never an instruction.
+
+New evidence produces an additive Recommendation linked by `previous_recommendation_id`.
+The pure engine reruns sufficiency, rules and lead-time confidence; the people engine supplies
+recipient-count differences. A pending revision is preliminary and cannot be approved; neither
+can its superseded predecessor. Audit events retain requests, tools, evidence, answers and diffs.
+On restart, interrupted checks settle from stored evidence without resending staff requests.
+
+Staff questions target assigned `facility_ops` people. ntfy HTTP-action buttons POST one offered
+option to a single-use hashed token, expiring after two hours; an HTML form is the link fallback.
+Replies become `human_reported` evidence with the person's name, role and timestamp. An unsafe
+target-commute-window report invokes facility policy `site_hazard_reported` (delayed arrival);
+safe replies cannot erase unsafe reports or lower a higher weather posture. With `DEMO_MODE=1`,
+managers may answer on a persona's behalf; those reports are explicitly SIMULATED.
+
+For real staff pushes, set `PUBLIC_BASE_URL` to the public HTTPS origin and configure each
+facility-operations person's ntfy topic. Leave `DATABASE_URL` unset to retain production SQLite.
+The optional SQLite-to-Postgres script is retained but is not run by startup or deployment.

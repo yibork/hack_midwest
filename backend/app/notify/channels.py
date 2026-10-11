@@ -43,3 +43,17 @@ def send_email(to: str, subject: str, text: str, html: str | None = None) -> tup
     except httpx.HTTPError as e:
         log.error("Resend send failed: %s", type(e).__name__)
         return False, f"email error: {type(e).__name__}"
+
+
+def send_staff_push(topic: str | None, title: str, message: str, actions: list[dict]) -> tuple[bool, str | None]:
+    """Explicit manager evidence request, separate from operational notices/DispatchGuard."""
+    topic = topic or settings.ntfy_topic
+    if not topic:
+        return False, "No ntfy topic configured for facility operations"
+    try:
+        response = httpx.post("https://ntfy.sh/", json={"topic": topic, "title": title, "message": message,
+                                                       "actions": actions, "tags": ["question"]}, timeout=10)
+        response.raise_for_status()
+        return True, None
+    except httpx.HTTPError as exc:
+        return False, f"ntfy error: {type(exc).__name__}"

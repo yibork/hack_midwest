@@ -15,7 +15,7 @@ export default function RecommendationView({ rec, actions }: { rec: Recommendati
       {rec.status === "preliminary" && (
         <div role="status" className="flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 font-semibold text-sky-900">
           <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-sky-300 border-t-sky-700" />
-          Preliminary - road check in progress. Approval opens when it finishes; the result may still change.
+          Preliminary - evidence check in progress. Approval opens when it finishes; the result may still change.
         </div>
       )}
       <Card>
@@ -181,6 +181,7 @@ export function EvidenceList({ evidence, tz }: { evidence: Evidence[]; tz: strin
                 <td className="py-2 pr-3"><StatusBadge status={e.status} /></td>
                 <td className="py-2 pr-3 font-mono uppercase">
                   {e.source}
+                  {e.source === 'human' && <div className="mt-1 rounded bg-purple-100 px-2 py-1 text-xs normal-case text-purple-900">Human reported {(e.value as {source_name?: string})?.source_name}{(e.value as {simulated?: boolean})?.simulated ? ' · SIMULATED for the demo' : ''}</div>}
                   {isLocal(e) && <div className="mt-1"><AuthorityBadge authority={(e.value as { authority: string }).authority} /></div>}
                 </td>
                 <td className="py-2 pr-3">

@@ -25,6 +25,8 @@ Collect live NWS weather data, river conditions and available local reports. Con
 Code applies reviewed thresholds to recommend an operating status. The manager sees the supporting evidence, source timestamps, missing information and what would change the recommendation.
 
 Official hazard definitions inform the thresholds; facility policy determines the proposed response.
+The Thresholds page lists policy 1.0.0's verified citations and explains which responses are
+facility choices rather than federal standards.
 
 ### 3. Ask for more evidence
 
@@ -35,6 +37,9 @@ Not convinced? The manager can ask:
 - “Why recommend a delay instead of closure?”
 
 Strands agents investigate approved sources or explain the saved evidence. New findings produce a revised recommendation for the manager to review.
+Checks always concern the recommendation's target day. Saved-record explanations and one-tap
+checks work without inference. Managers can also schedule a recheck or ask facility operations
+staff for site evidence; human reports are labeled separately and cannot lower the posture.
 
 ### 4. Decide and notify
 

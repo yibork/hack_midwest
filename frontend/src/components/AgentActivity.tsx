@@ -4,6 +4,7 @@ import { ErrorBox, fmtTime } from "./ui";
 
 const AGENT_LABEL: Record<string, string> = {
   weather_agent: "Weather agent",
+  investigator_agent: "Investigator",
   writer_agent: "Writer agent",
   message_agent: "Message agent",
   local_coordinator: "Local coordinator",
@@ -90,6 +91,14 @@ function describe(e: RecordEvent): Line | null {
   const who = AGENT_LABEL[p.agent] ?? p.agent ?? "Agent";
   const base = { id: e.id, time: e.timestamp };
   switch (e.event_type) {
+    case "investigation_requested":
+      return { ...base, title: `Investigation for ${p.operating_date}`, detail: p.question, tone: "agent" };
+    case "investigation.answer":
+      return { ...base, title: p.source_label, detail: p.answer, tone: "agent" };
+    case "investigation.evidence_added":
+      return { ...base, title: `${p.evidence_ids.length} evidence rows added`, tone: "data" };
+    case "recommendation_revised":
+      return { ...base, title: "Recommendation revised", detail: Object.keys(p.diff.changes).join(', ') || 'No change to posture or recipients', tone: "engine" };
     case "evaluation.started":
       return { ...base, title: "Evaluation started", tone: "muted" };
     case "agent.invocation_start":

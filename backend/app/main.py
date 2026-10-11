@@ -56,6 +56,11 @@ async def _roads_watch_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_seeded()  # creates tables, inserts demo data if missing; tolerates an unreachable DB
+    from .investigations import recover_interrupted
+    try:
+        recover_interrupted()
+    except Exception:
+        log.exception("Could not settle interrupted investigations")
     tasks = []
     if settings.escalation_loop:
         tasks.append(asyncio.create_task(_escalation_loop()))
