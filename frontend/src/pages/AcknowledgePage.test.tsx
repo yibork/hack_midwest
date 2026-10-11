@@ -14,3 +14,11 @@ it('records only when the one large acknowledgment button is pressed', async () 
   expect(await screen.findByText('Report safely at 05:00')).toBeTruthy();
   expect(screen.getByText('View my status').getAttribute('href')).toBe('/me?as=emp-005');
 });
+
+it('retains the SIMULATED label when it is in the structured message footer', async () => {
+  vi.spyOn(api, 'ack').mockResolvedValue({employee_id: 'emp-005', duty_instruction: 'Report at 05:00',
+    acknowledged_at: '2026-10-10T09:00:00Z', message: 'USDA demo office: closure.\nDemo: synthetic office, SIMULATED alert'} as Notification);
+  render(<MemoryRouter initialEntries={['/acknowledge/notice']}><Routes><Route path="/acknowledge/:id" element={<AcknowledgePage />} /></Routes></MemoryRouter>);
+  fireEvent.click(screen.getByRole('button'));
+  expect(await screen.findByText('SIMULATED · Not a live operating instruction')).toBeTruthy();
+});

@@ -44,8 +44,8 @@ def test_persona_email_redirect_and_addressed_to_prefix(demo, monkeypatch):
     payload = captured[0]
     assert payload["to"] == [demo.demo_email]
     assert payload["from"] == demo.resend_from
-    assert payload["subject"] == "[Demo -> Sam Okafor] SIMULATED closure"
-    assert payload["text"].startswith("This demo message was addressed to Sam Okafor (employee).\n")
+    assert payload["subject"] == "SIMULATED closure"
+    assert payload["text"] == "SIMULATED instructions"  # no sixth line/prelude inserted by transport
     assert "SIMULATED" in payload["text"]
     assert result["ok"] and result["status"] == "delivered" and result["sent_at"]
 

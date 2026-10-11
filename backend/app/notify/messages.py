@@ -9,7 +9,8 @@ import html
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from ..access.policy import Access
 from . import instructions as ins
@@ -140,6 +141,14 @@ class MessageFacts:
     update_line: str | None = None
     render: frozenset[str] = frozenset()
     extra_times: list[str] = field(default_factory=list)
+    hazard: str = "No active hazard identified"
+    hazard_source: str = "Facility decision"
+    hazard_end: str = ""
+    footer: str = ""
+    report_time: str = ""
+    end_time: str = ""
+    function_name: str = ""
+    timezone: str = "America/Chicago"
 
     @property
     def lang(self) -> str:
@@ -161,7 +170,7 @@ class MessageFacts:
     def placeholders(self) -> dict[str, str]:
         """What a drafted template may reference."""
         lab = LABELS[self.lang]
-        return {
+        values = {
             "name": self.name.split()[0],
             "why": self.why,
             "instruction": self.instruction,
@@ -171,9 +180,13 @@ class MessageFacts:
             "facility": self.facility_name,
             "date": self.date_text,
         }
+        values.update(what_happened=what_happened(self), personal_action=personal_action(self),
+                      access_line=building_line(self), reply_line=reply_line(self), footer=self.footer)
+        return values
 
     def allowed_times(self) -> set[str]:
-        times = {self.access.time} | set(self.extra_times)
+        times = {self.access.time, self.report_time, self.end_time} | set(self.extra_times)
+        times |= {f"{h.zfill(2)}:{m}" for h, m in _TIME.findall(self.hazard_end)}
         times |= {f"{h.zfill(2)}:{m}" for h, m in _TIME.findall(self.instruction + " " + (self.update_line or ""))}
         return {t for t in times if t}
 
@@ -184,30 +197,111 @@ class MessageFacts:
 
 
 def subject_for(f: MessageFacts) -> str:
-    kind = "call_in" if f.message_type == "call_in" else f.change if f.change in ("update", "all_clear") else "initial"
-    return SUBJECT[f.lang][kind].format(facility=f.facility_name, label=ins.posture_label(f.posture, f.lang),
-                                        date=f.date_text)
+    hazard = f.hazard if f.hazard != "No active hazard identified" else ("Update" if f.lang == "en" else "Aviso")
+    labels = {"normal": "open", "delayed_arrival": "late opening", "early_dismissal": "early dismissal",
+              "telework": "telework", "closure": "closed"}
+    es_labels = {"normal": "abierto", "delayed_arrival": "apertura tardía", "early_dismissal": "salida anticipada",
+                 "telework": "teletrabajo", "closure": "cerrado"}
+    if "LEAVE" in f.why_codes or "DAY_OFF" in f.why_codes:
+        action = "sin turno" if f.lang == "es" else "no shift"
+    elif f.message_type == "call_in" or "EMERGENCY_DUTY" in f.why_codes or "FACILITY_OPS" in f.why_codes:
+        action = ("report " if f.lang == "en" else "preséntese ") + (f.report_time or ("según horario" if f.lang == "es" else "as scheduled"))
+    elif f.posture == "early_dismissal" and _TIME.search(f.instruction):
+        action = ("leave " if f.lang == "en" else "salga ") + _TIME.search(f.instruction).group()
+    else:
+        action = "work remotely" if "telework" in f.instruction or "distancia" in f.instruction else "usual schedule"
+        if f.posture == "closure" and "follow agency leave policy" in f.instruction:
+            action = "stay home"
+        elif f.posture == "closure" and "política de licencias" in f.instruction:
+            action = "stay home"
+        elif "request unscheduled leave" in f.instruction or "licencia no programada" in f.instruction:
+            action = "report or request leave"
+        elif f.posture == "delayed_arrival" and _TIME.search(f.instruction):
+            action = "report " + _TIME.search(f.instruction).group()
+        if f.lang == "es":
+            action = {"work remotely": "trabaje remotamente", "usual schedule": "horario habitual",
+                      "stay home": "quédese en casa", "report or request leave": "preséntese o solicite licencia"}.get(action, action.replace("report ", "preséntese "))
+    label = (es_labels if f.lang == "es" else labels)[f.posture]
+    today = ("hoy" if f.lang == "es" else "today") if f.operating_date == datetime.now(ZoneInfo(f.timezone)).date() else f.date_text.split(",")[0].split()[0]
+    # A connected dash saves a word while keeping the hazard and action readable.
+    return f"{hazard} - {label} {today}; {action}" if len(f"{hazard} - {label} {today}; {action}".split()) < 10 else f"{hazard}-{label} {today}; {action}"
+
+
+def what_happened(f: MessageFacts) -> str:
+    label = ins.posture_label(f.posture, f.lang)
+    until = (" hasta " if f.lang == "es" else " until ") + f.hazard_end if f.hazard_end else ""
+    hazard = {"Flood Warning": "Aviso de inundación", "Flash Flood Warning": "Aviso de inundación repentina",
+              "Winter Storm Warning": "Aviso de tormenta invernal", "Ice Storm Warning": "Aviso de tormenta de hielo",
+              "High Wind Warning": "Aviso de vientos fuertes", "Wind Advisory": "Alerta de viento",
+              "Tornado Warning": "Aviso de tornado", "Severe Thunderstorm Warning": "Aviso de tormenta severa"}.get(f.hazard, f.hazard) if f.lang == "es" else f.hazard
+    prefix = "Actualización: " if f.lang == "es" and f.change == "update" else "Update: " if f.change == "update" else ""
+    return f"{prefix}{f.facility_name}: {label}, {f.date_text}. {f.hazard_source}: {hazard}{until}."
+
+
+def personal_action(f: MessageFacts) -> str:
+    """Presentation only: preserve the computed duty, including every exception/option."""
+    es = f.lang == "es"
+    time = f.report_time or ("su hora programada" if es else "your scheduled time")
+    if "DETAIL_OUT" in f.why_codes:
+        return f.instruction[:1].upper() + f.instruction[1:] + "."
+    if f.message_type == "call_in":
+        return ((f"Su gerente le pide cubrir {f.function_name or 'una función crítica'}; preséntese en persona a las {time}." if es
+                 else f"Your manager called you in for {f.function_name or 'critical coverage'}; report on site by {time}."))
+    if "FACILITY_OPS" in f.why_codes:
+        return (f"Tiene tareas de operaciones del edificio: {f.instruction}. Turno: {time}." if es else
+                f"You have facility operations duty: {f.instruction}. Shift: {time}.")
+    if "EMERGENCY_DUTY" in f.why_codes:
+        function = f.function_name or ("su función de emergencia" if es else "your emergency role")
+        if es:
+            function = {"animal care": "cuidado de animales", "lab freezer monitoring": "vigilancia de congeladores",
+                        "security": "seguridad", "it operations": "operaciones informáticas"}.get(function, function)
+        if f.posture == "early_dismissal":
+            return (f"Es personal de emergencia para {function}; permanezca de servicio desde las {time} salvo indicación contraria." if es else
+                    f"You are emergency staff for {function}; stay on duty from {time} unless told otherwise.")
+        return (f"Es personal de emergencia para {function}; preséntese en persona a las {time} salvo indicación contraria." if es else
+                f"You are emergency staff for {function}, so still report on site at {time} unless told otherwise.")
+    if f.change == "all_clear":
+        return (f"El aviso anterior ya no aplica; siga su horario desde las {time}." if es else
+                f"The earlier notice no longer applies; follow your schedule from {time}.")
+    if "LEAVE" in f.why_codes or "DAY_OFF" in f.why_codes:
+        return "No tiene turno este día; no venga." if es else "You are not scheduled this day; don't come in."
+    if "CONTRACTOR_STATUS_ONLY" in f.why_codes:
+        return f.instruction[:1].upper() + f.instruction[1:] + "."
+    if "SHIFT_NOT_AFFECTED" in f.why_codes:
+        return (f"Su turno no está afectado; siga su horario desde las {time}." if es else
+                f"Your shift is outside the affected hours; work your schedule from {time}.")
+    if f.instruction in ("telework today", "office closed, telework", "no change for you: keep teleworking",
+                         "trabaje a distancia hoy", "oficina cerrada, trabaje a distancia", "sin cambios para usted: siga trabajando a distancia"):
+        return (f"No venga; trabaje desde casa desde las {time}." if es else f"Don't come in; work from home from {time}.")
+    if f.posture == "normal":
+        return (f"Siga su horario habitual desde las {time}." if es else f"Work your normal schedule from {time}.")
+    if f.instruction in ("office closed, follow agency leave policy", "oficina cerrada, siga la política de licencias de la agencia"):
+        return (f"No venga a las {time}; siga la política de licencias de la agencia." if es else
+                f"Don't come in at {time}; follow agency leave policy.")
+    if f.instruction in ("report, or request unscheduled leave", "preséntese o solicite licencia no programada"):
+        return (f"Preséntese a las {time} o solicite licencia no programada." if es else
+                f"Report at {time}, or request unscheduled leave.")
+    return f.instruction[:1].upper() + f.instruction[1:] + "."
+
+
+def building_line(f: MessageFacts) -> str:
+    if any(c in f.why_codes for c in ("TELEWORK_SCHEDULED", "LEAVE", "DAY_OFF", "DETAIL_OUT")):
+        return ""
+    if f.access.status == "allowed" and not any(c in f.why_codes for c in ("EMERGENCY_DUTY", "FACILITY_OPS", "CALL_IN")):
+        return ""
+    return ("Acceso al edificio: " if f.lang == "es" else "Building access: ") + access_text(f.access, f.lang) + "."
+
+
+def reply_line(f: MessageFacts) -> str:
+    if f.requires_ack and f.ack_url:
+        return ("Confirme: " if f.lang == "es" else "Please confirm: ") + f.ack_url
+    return "No necesita responder." if f.lang == "es" else "No reply needed."
 
 
 def template(f: MessageFacts) -> tuple[str, str]:
     """Deterministic message. Always valid."""
-    lang, ph, lab = f.lang, f.placeholders(), LABELS[f.lang]
-    what = (WHAT_HAPPENED_PLAIN if "plain_language" in f.render else WHAT_HAPPENED)[lang][f.posture].format(
-        facility=f.facility_name, date=f.date_text, delay_hours=f.delay_hours)
-    lines = [f"{ph['name']}:"]
-    if f.update_line:
-        lines.append(f.update_line)
-    if f.change == "all_clear":
-        lines += [what, f.instruction[:1].upper() + f.instruction[1:] + "."]
-    else:
-        lines.append(what)
-        lines.append((lab["applies"] if f.message_type in ("action_required", "call_in") else lab["fyi"]).format(why=ph["why"]))
-        lines.append(lab["todo"].format(instruction=f.instruction))
-        lines.append(lab["access"].format(access=ph["access"]))
-    if ph["ack_line"]:
-        lines.append(ph["ack_line"])
-    lines.append(lab["sign"].format(facility=f.facility_name))
-    return subject_for(f), "\n".join(lines)
+    lines = [what_happened(f), f"**{personal_action(f)}**", building_line(f), reply_line(f), f.footer]
+    return subject_for(f), "\n".join(line for line in lines if line)
 
 
 class _Strict(dict):
@@ -222,7 +316,7 @@ def render_draft(subject: str, body: str, f: MessageFacts) -> tuple[str, str]:
     text = "\n".join(line.rstrip() for line in text.splitlines() if line.strip())
     if f.requires_ack and ph["ack_line"] and f.ack_url not in text:
         text += "\n" + ph["ack_line"]
-    return subject.format_map(ph).strip()[:200] or subject_for(f), text
+    return subject_for(f), text  # hazard/action subjects are deterministic, never model-written
 
 
 def _norm(s: str) -> str:
@@ -237,7 +331,7 @@ def validate(body: str, f: MessageFacts) -> str | None:
         return "message too long"
     if _EMOJI.search(body):
         return "contains emoji"
-    if f.change != "all_clear" and _norm(f.instruction) not in _norm(body):
+    if _norm(personal_action(f)) not in _norm(body):
         return "does not contain the duty instruction"
     times = {f"{h.zfill(2)}:{m}" for h, m in _TIME.findall(body)}
     bad = sorted(times - f.allowed_times())
@@ -249,15 +343,19 @@ def validate(body: str, f: MessageFacts) -> str | None:
         return f"numbers not in the facts: {', '.join(unknown)}"
     if f.requires_ack and f.ack_url and f.ack_url not in body:
         return "missing the acknowledgment link"
+    expected = template(f)[1].splitlines()
+    if body.splitlines() != expected:
+        return "must use the five-line hazard, personal action, access, reply and footer structure"
     return None
 
 
 def html_body(body: str, render: frozenset[str]) -> str | None:
     """Large-text email: same words, bigger type. Screen-reader friendly: plain paragraphs."""
-    if "large_text" not in render:
+    if "text_only" in render or ("large_text" not in render and "**" not in body):
         return None
-    paras = "".join(f"<p>{html.escape(line)}</p>" for line in body.splitlines())
-    return f'<div style="font-size:22px;line-height:1.5;font-family:Arial,sans-serif">{paras}</div>'
+    paras = "".join("<p>" + re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html.escape(line)) + "</p>" for line in body.splitlines())
+    size = 22 if "large_text" in render else 16
+    return f'<div style="font-size:{size}px;line-height:1.5;font-family:Arial,sans-serif">{paras}</div>'
 
 
 # ---------------------------------------------------------------- role messages (English)

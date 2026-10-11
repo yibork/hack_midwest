@@ -238,11 +238,26 @@ Priya and Pat follow the presentation roster. Lee's already-teleworking instruct
 email-only FYI; Jordan is unscheduled and requires an explicit manager call-in.
 
 Demo email delivery is restricted to the seven stable persona IDs and redirected to
-`DEMO_EMAIL` using `RESEND_FROM`, with an addressed-to preface and `[Demo -> Name]` subject.
+`DEMO_EMAIL` using `RESEND_FROM`. The employee subject stays under ten words and the body
+uses the same five-line structure as push and My status, without a transport-added preface.
 Other synthetic emails and pushes without a personal device are recorded as `simulated`,
 not sent or failed, and do not start acknowledgment timers. Confirmation totals count channel
 deliveries (push plus email), simulated channel attempts and failed channel attempts separately.
 Provider failures retain a redacted message and HTTP status in the delivery record.
+
+Employee copy is a presentation of the unchanged computed duty/access decisions: short facility
+name, posture/day and saved named hazard with its facility-local expiry; bold personal instruction
+and computed shift time (including emergency/function, facility-operations or call-in exceptions);
+access only when relevant; required confirmation link or "No reply needed"; and the demo footer.
+Spanish follows the same structure. Missing hazard names/expiry or shift times are not invented.
+My status renders these lines, not internal exposure/source-coverage notes. Old notice records are
+not rewritten; new wording applies to new notices, with a fresh message-draft cache namespace.
+Maria gets one consolidated digest per notice across the original planned channels, after employee
+deliveries, showing sent/acknowledged counts, shortfalls and suggested manager-selected call-ins.
+An unchanged digest is not resent. Reminders are limited to one attempt per person, facility and
+target day across active notice versions, push only with no email fallback; supervisor/manager
+escalation remains unchanged. Priya is telework-ready with standard access; her home stays in the
+simulated warning area, but she is correctly not counted as commuting on a telework/closure day.
 
 The winter scenario saves SIMULATED alerts, wind/ice, I-70 access and home-zone inputs, then
 uses the unchanged policy and people engines. The synthetic clock is explicitly 04:00 local

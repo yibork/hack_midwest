@@ -143,7 +143,7 @@ def test_template_has_every_part_and_validates():
     f = _facts()
     subject, body = messages.template(f)
     assert messages.validate(body, f) is None
-    for part in ("delayed arrival", "applies to you", "What to do: report by 09:30 or telework", "Building access",
+    for part in ("delayed arrival", "**Report by 09:30 or telework.**", "Building access",
                  "http://x/ack/n1"):
         assert part in body
 
@@ -151,16 +151,16 @@ def test_template_has_every_part_and_validates():
 def test_validator_rejects_missing_instruction_wrong_time_and_emoji():
     f = _facts()
     assert "instruction" in messages.validate("Dana: please come in at some point. http://x/ack/n1", f)
-    assert "times" in messages.validate("Dana: report by 09:30 or telework, maybe 10:15. http://x/ack/n1", f)
+    assert "times" in messages.validate(messages.template(f)[1] + "\nMaybe 10:15.", f)
     assert "emoji" in messages.validate("Dana: report by 09:30 or telework ❄ http://x/ack/n1", f)
-    assert "acknowledgment" in messages.validate("Dana: report by 09:30 or telework.", f)
+    assert "acknowledgment" in messages.validate(messages.template(f)[1].replace(f.ack_url, ""), f)
 
 
 def test_spanish_and_plain_language_rendering():
     i = impact("delayed_arrival", p=person(language="es", accommodation_needs=["plain_language"]))
     f = _facts(language="es", instruction=i.duty_instruction, render=i.render)
     _, body = messages.template(f)
-    assert "preséntese a más tardar a las 09:30" in body and "Mal clima" in body
+    assert "Preséntese a más tardar a las 09:30" in body and "llegada retrasada" in body
     assert messages.validate(body, f) is None
 
 

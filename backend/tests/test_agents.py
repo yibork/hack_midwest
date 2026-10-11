@@ -294,10 +294,9 @@ def test_message_agent_drafts_all_groups_in_one_call(monkeypatch, canned_nws):
     timed_key = groups["report as normal and acknowledge"]
     drafts = {"groups": [
         {"key": good_key, "subject": "{facility} closed {date}",
-         "body": "Hello {name}. {facility} is closed on {date} due to weather. This applies to you because {why}. "
-                 "Please {instruction}. Building: {access}."},
+         "body": "{what_happened}\n**{personal_action}**\n{access_line}\n{reply_line}\n{footer}"},
         {"key": bad_key, "subject": "Closed", "body": "Hi {name}, the office is closed. Building: {access}."},
-        {"key": timed_key, "subject": "Report", "body": "{name}: {instruction} by 06:45. Building: {access}. {ack_line}"},
+        {"key": timed_key, "subject": "Report", "body": "{what_happened}\n**{personal_action}**\n{access_line}\n{reply_line}\n{footer}\nReport by 06:45."},
     ]}
     model = ScriptedModel([[("NoticeDrafts", drafts)], "done"])
     use_model(monkeypatch, model)
@@ -314,7 +313,7 @@ def test_message_agent_drafts_all_groups_in_one_call(monkeypatch, canned_nws):
     assert by_key[bad_key] == {"template"}
     assert by_key[timed_key] == {"template"}  # 06:45 isn't a computed time
     agent_msg = next(p for p in plan.planned if p.group_key == good_key)
-    assert "office closed, telework" in agent_msg.message and agent_msg.employee.name.split()[0] in agent_msg.message
+    assert "Don't come in; work from home" in agent_msg.message
     assert any("06:45" in r["reason"] for r in stats["rejected"])
     assert len(calls) - calls_before == 1  # ONE model call for the whole notice
 
