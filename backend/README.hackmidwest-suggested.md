@@ -65,9 +65,9 @@ Choose the **Facility manager** demo role. Start by evaluating a facility, then 
 | **4. Reconstructable decision record** | Preserve evidence, recommendations, manager decisions and notification outcomes. Inspect saved evidence and printable decision memos. | [Decision record](https://closurecall.duckdns.org/record) |
 | **5. Defensible thresholds** | Show policy versions, source citations and the justification connecting hazard conditions to a proposed operating status. | [Thresholds and citations](https://closurecall.duckdns.org/thresholds) |
 
-**Official sources define hazards; our prototype facility policy defines the proposed response.** The manager makes the final decision. These mappings are not official USDA directives.
+<!-- **Official sources define hazards; our prototype facility policy defines the proposed response.** The manager makes the final decision. These mappings are not official USDA directives.
 
-*National scan demonstrates live alerts. Use the seeded facility to demonstrate the employee notification workflow; temporary national-scan facilities do not have an employee roster.*
+*National scan demonstrates live alerts. Use the seeded facility to demonstrate the employee notification workflow; temporary national-scan facilities do not have an employee roster.* -->
 ## AWS: how we use Strands Agents SDK
 
 ![Strands agents connected to Akamai AI inference, with rules-based recommendations and human approval](../closure-call-strands-agents.png)
@@ -112,7 +112,7 @@ Server setup uses `~/closure-call` and an external environment file, defaulting 
 
 The deployment script currently fetches the latest `main`, rather than pinning the exact CI-tested commit. Its health gate checks HTTP availability and inference configuration; it does not prove a successful model call or require a healthy database result. Code rollback does not reverse database changes.
 
-## Run locally
+<!-- ## Run locally
 
 <!-- Prerequisites: Docker with a recent Docker Compose v2. Run from the repository root (the parent of this `backend` directory): -->
 
@@ -124,11 +124,9 @@ docker compose up --build
 
 Open **http://localhost:8000**. Local Compose starts the application and PostgreSQL; startup creates tables and seeds synthetic demo records. No API key is required for NWS. Without valid inference configuration, AI stages use their fallbacks.
 
-For actual delivery, configure `NTFY_TOPIC` or recipient topics and/or `RESEND_API_KEY` with a valid `RESEND_FROM`. `NOTIFY_EMAIL_OVERRIDE` can direct demo email to one test inbox. Set `PUBLIC_BASE_URL` to an address recipients can reach for acknowledgment links. Optional `DEMO_MODE=1` enables labeled scenarios and shortened demonstration timers. Never commit `.env` or credentials.
+For actual delivery, configure `NTFY_TOPIC` or recipient topics and/or `RESEND_API_KEY` with a valid `RESEND_FROM`. `NOTIFY_EMAIL_OVERRIDE` can direct demo email to one test inbox. Set `PUBLIC_BASE_URL` to an address recipients can reach for acknowledgment links. Optional `DEMO_MODE=1` enables labeled scenarios and shortened demonstration timers. Never commit `.env` or credentials. -->
 
 ### Tests
-
-These mirror the checks configured in CI; they are commands to run, not a claim about the latest test result.
 
 ```sh
 # Backend: Python 3.11, from backend/
@@ -145,21 +143,8 @@ npm test
 npm run build
 ```
 
-Backend tests use a temporary SQLite database and block calls to the live workshop inference endpoint. Test coverage includes rules, agents, recipient planning, investigations, saved copies and record integrity. Live NWS, inference and notification delivery must also be demonstrated separately.
+<!-- Backend tests use a temporary SQLite database and block calls to the live workshop inference endpoint. Test coverage includes rules, agents, recipient planning, investigations, saved copies and record integrity. Live NWS, inference and notification delivery must also be demonstrated separately. -->
 
-### Schema changes
-
-Startup creates missing tables and adds missing nullable columns. Renames, type changes and new non-nullable columns require a deliberate migration. The optional [SQLite-to-PostgreSQL migration script](../backend/scripts/migrate_sqlite_to_postgres.py) is not run automatically by deployment.
-
-## Before presenting
-
-- Demonstrate a fresh national NWS alert with its source and timestamp; a simulated or replayed scenario is not a substitute.
-- Show a successful Strands tool/model run in the activity panel and identify any fallback output.
-- Show the Akamai compute deployment and successful inference use without exposing credentials; confirm the actual database backend through `/api/health`.
-- Test a real push or email to a demo recipient and show acknowledgment. A draft or console fallback is not proof of receipt.
-- Open the saved decision memo and threshold citations. Hash chains are tamper-evident, not tamper-proof; their limitations are documented below.
-
-These are presentation checks, not additional sponsor requirements. Current deployment availability and provider success should be verified before judging.
 
 ## Documentation and resources
 
