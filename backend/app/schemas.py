@@ -128,6 +128,8 @@ class Evidence(ORMModel):
     relevance_note: str = ""
     ambiguity_flags: list[str] = []
     status: EvidenceStatus
+    scenario_id: str | None = None
+    scenario_kind: str | None = None
 
 
 class Trigger(BaseModel):
@@ -157,6 +159,9 @@ class Recommendation(ORMModel):
     rationale_source: Literal["agent", "template"] = "template"
     evidence_ids: list[str]
     policy_version: str
+    scenario_id: str | None = None
+    scenario_kind: str | None = None
+    scenario_context: dict | None = None
     # How the operating date was chosen: next_operating_day | explicit | demo_workday
     target_mode: str | None = "next_operating_day"
     target_note: str | None = None  # "Mon Oct 12 is a federal holiday (Columbus Day); next workday Tue Oct 13."

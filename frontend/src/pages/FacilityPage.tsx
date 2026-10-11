@@ -4,19 +4,21 @@ import { api, newEvaluationId, type EvaluateTarget, type RecommendationDetail } 
 import AgentActivity from "../components/AgentActivity";
 import RecommendationView from "../components/RecommendationView";
 import InvestigationPanel from "../components/InvestigationPanel";
+import DemoScenario from "../components/DemoScenario";
 import { Button, ErrorBox, Loading, useAsync } from "../components/ui";
 
 export default function FacilityPage() {
   const [params, setParams] = useSearchParams();
   const facilities = useAsync(() => api.facilities(), []);
   const facilityId = params.get("facility") ?? facilities.data?.[0]?.id;
-  const facility = facilities.data?.find((f) => f.id === facilityId);
+  const selectedFacility = facilities.data?.find((f) => f.id === facilityId);
 
   const latest = useAsync<RecommendationDetail | null>(
     () => (facilityId ? api.latestRecommendation(facilityId) : Promise.resolve(null)),
     [facilityId],
   );
   const [evaluating, setEvaluating] = useState(false);
+  const facility = selectedFacility ?? latest.data?.facility;
   const [evalError, setEvalError] = useState<string | null>(null);
   const [runningEval, setRunningEval] = useState<string | null>(null);
   const [target, setTarget] = useState<string>("next"); // "next" | "demo" | YYYY-MM-DD
@@ -31,7 +33,12 @@ export default function FacilityPage() {
     setEvalError(null);
     const opts: EvaluateTarget = target === "next" ? {} : target === "demo" ? { demo_workday: true } : { target_date: target };
     try {
-      latest.setData(await api.evaluate(facilityId, eid, opts));
+      const scenario = await api.demoState();
+      latest.setData(scenario.enabled && ["simulated_winter", "live_national"].includes(scenario.mode)
+        ? await api.demoScenario(scenario.mode)
+        : scenario.mode === "replay" && latest.data ? await api.recommendation(latest.data.id)
+        : await api.evaluate(facilityId, eid, opts));
+      window.dispatchEvent(new Event("demo-scenario-change"));
     } catch (e) {
       setEvalError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -72,6 +79,7 @@ export default function FacilityPage() {
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
       <div className="min-w-0 space-y-4">
+        <DemoScenario onChange={rec => { latest.setData(rec); setParams({facility: rec?.facility_id ?? "usda-kc-demo"}); }} />
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             {facilities.data && facilities.data.length > 1 ? (

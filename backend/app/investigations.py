@@ -5,7 +5,7 @@ import re
 import secrets
 import threading
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
@@ -27,7 +27,7 @@ from .sources import nwps, nws, local_signals
 CHECKS = {"check_commute_routes", "check_access_routes", "check_river", "check_local_closures", "recheck_now"}
 RECORD_ACTIONS = {"explain_confidence", "what_would_change"}
 _threads = {}
-_run_lock = threading.Lock()  # serialize revisions and staff responses in this single-process app
+_run_lock = threading.RLock()  # serialize revisions, staff responses and demo resets
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 _CITATION = re.compile(r"\[(evidence|policy):([^\]]+)\]")
 _CONDITIONAL = re.compile(r"\b(if|unless|would|could|might)\b", re.I)
@@ -119,6 +119,8 @@ def question_check(question):
 
 
 def request(db, rec, body, *, launch=True, scheduled_job=None):
+    if rec.archived_at:
+        raise HTTPException(409, "This demo recommendation was reset; evaluate again")
     if rec.status == "preliminary":
         raise HTTPException(409, "Wait for the current evidence check to finish")
     child = db.scalar(select(models.Recommendation.id).where(models.Recommendation.previous_recommendation_id == rec.id).limit(1))
@@ -457,6 +459,8 @@ def refresh_expired(evidence, state):
     saved = [schemas.Evidence.model_validate(e) for e in evidence]
     sources = {s.id: s for s in local_signals.sources()}
     def expired(e):
+        if e.scenario_kind in {"simulated", "replay"}:
+            return False  # replay/simulation may never fetch live evidence
         if e.source not in {"nws", "nwps", "local"}:
             return False
         if e.status == "stale" or (e.valid_until and e.valid_until <= now):
@@ -548,10 +552,15 @@ def revision_context(investigation):
 def revise(db, investigation, before, evidence, *, pending=False):
     facility = db.get(models.Facility, before.facility_id)
     result = evaluate(schemas.Facility.model_validate(facility), [schemas.Evidence.model_validate(e) for e in evidence],
-                      utcnow(), operating_date=before.operating_date, target_mode=before.target_mode or "explicit",
+                      datetime.fromisoformat(before.scenario_context["clock"]) if before.scenario_context else utcnow(),
+                      operating_date=before.operating_date, target_mode=before.target_mode or "explicit",
                       target_note=original_target_note(db, before))
+    if before.scenario_kind:
+        result.rationale = ("SIMULATED. " if before.scenario_kind == "simulated" else "REPLAY (not current conditions). ") + result.rationale
     values = result.model_dump(exclude={"triggers"}, mode="python")
     values.update(evaluation_id=investigation.id, previous_recommendation_id=before.id,
+                  evaluated_at=utcnow(), scenario_id=before.scenario_id, scenario_kind=before.scenario_kind,
+                  scenario_context=before.scenario_context,
                   revision_context=revision_context(investigation),
                   status="preliminary" if pending else "final", template_rationale=result.rationale)
     row = models.Recommendation(**values, triggers=[t.model_dump() for t in result.triggers])
@@ -587,7 +596,7 @@ def finish_revision(db, investigation, before, pending, evidence):
 def run(investigation_id):
     with _run_lock, SessionLocal() as db:
         row = db.get(models.Investigation, investigation_id)
-        if row is None or row.status != "pending":
+        if row is None or row.status != "pending" or row.archived_at:
             return
         rec = db.get(models.Recommendation, row.recommendation_id)
         body = schemas.InvestigationIn.model_validate({k: v for k, v in row.request.items() if k != "scheduled_job"})
@@ -627,6 +636,12 @@ def run(investigation_id):
                 answer = {"answer": f"For {rec.operating_date}, a recheck is scheduled at {body.at.isoformat()}. [policy:calendar]",
                           "limitations": ["Runs while the scheduler is enabled"], "evidence_ids": [], "policy_ids": ["calendar"]}
                 label, row.status = "Deterministic schedule", "completed"
+            elif rec.scenario_kind in {"simulated", "replay"} and body.action != "ask_staff":
+                answer = summarize(rec, evidence, body)
+                answer["limitations"].append("Saved scenario only; live tools are disabled to prevent mixing evidence")
+                label, row.status = ("SIMULATED" if rec.scenario_kind == "simulated" else "REPLAY") + " record summary", "completed"
+                if body.action in CHECKS:
+                    revise(db, row, rec, evidence)
             elif record_only(body):
                 answer = summarize(rec, evidence, body)
                 # Other record-only questions must not pretend to know facts outside the record.
@@ -710,11 +725,12 @@ def ask_staff(db, investigation, rec, body, windows):
         actions = [{"action": "http", "label": option, "url": url, "method": "POST",
                     "headers": {"Content-Type": "application/json"}, "body": json.dumps({"option": option}),
                     "clear": True} for option in body.options]
-        message = (f"Evidence request for {rec.operating_date} commute {windows.commute_start:%H:%M}–{windows.commute_end:%H:%M} "
+        label = "SIMULATED: " if rec.scenario_kind == "simulated" else "REPLAY: " if rec.scenario_kind == "replay" else ""
+        message = (f"{label}Evidence request for {rec.operating_date} commute {windows.commute_start:%H:%M}–{windows.commute_end:%H:%M} "
                    f"({windows.open.tzinfo}). {body.question}\nReply using the buttons, or this link: {url}\n"
                    "This is a request for evidence, not an operating-status instruction.")
         ok, error = send_staff_push(person.ntfy_topic, "Closure Call: site evidence requested", message, actions)
-        row.delivery = {"ok": ok, "error": error}
+        row.delivery = {"ok": ok, "error": error, "sent_at": utcnow().isoformat()}
         record.append(db, "investigation.staff_requested", {"staff_question_id": row.id, "employee_id": person.id,
                       "operating_date": rec.operating_date, "delivery": row.delivery},
                       facility_id=rec.facility_id, evaluation_id=investigation.id)
@@ -722,6 +738,13 @@ def ask_staff(db, investigation, rec, body, windows):
 
 
 def submit_staff(db, staff, option, *, demo=False):
+    with _run_lock:
+        return _submit_staff(db, staff, option, demo=demo)
+
+
+def _submit_staff(db, staff, option, *, demo=False):
+    if staff.archived_at:
+        raise HTTPException(410, "This demo staff question was reset")
     if option not in staff.options:
         raise HTTPException(422, "Choose one of the offered options")
     now = utcnow()
@@ -736,12 +759,14 @@ def submit_staff(db, staff, option, *, demo=False):
         raise HTTPException(409, "This request has already been answered")
     investigation = db.get(models.Investigation, staff.investigation_id)
     rec = db.get(models.Recommendation, investigation.recommendation_id)
+    demo = demo or rec.scenario_kind == "simulated"
     person = db.get(models.Employee, staff.employee_id)
     if person.role != "facility_ops":
         db.rollback()
         raise HTTPException(403, "Only facility operations reports can be submitted")
     fac, windows, evidence = context(db, rec)
     ev = schemas.Evidence(id=uuid.uuid4().hex, source="human", kind="site_report", status="ok", source_time=now,
+                          scenario_id=rec.scenario_id, scenario_kind=rec.scenario_kind,
                           retrieved_at=now, valid_until=windows.commute_end,
                           relevance_note=("SIMULATED for the demo. " if demo else "") + f"Reported by {person.name} ({person.role})",
                           value={"authority": "human_reported", "source_name": f"reported by {person.name} ({person.role})",
@@ -754,6 +779,7 @@ def submit_staff(db, staff, option, *, demo=False):
     # Include all staff replies so a safe reply cannot erase another person's unsafe report.
     merged = merge_evidence(evidence, weather_agent.evidence_for(investigation.id))
     latest = db.scalar(select(models.Recommendation).where(models.Recommendation.facility_id == fac.id,
+                       models.Recommendation.scenario_id == rec.scenario_id, models.Recommendation.archived_at.is_(None),
                        models.Recommendation.operating_date == rec.operating_date).order_by(models.Recommendation.evaluated_at.desc()).limit(1))
     if latest and latest.id != rec.id:
         _, _, recent = context(db, latest)

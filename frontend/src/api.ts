@@ -28,6 +28,7 @@ export interface AccessSegment {
 }
 
 export interface Evidence {
+  scenario_kind?: string | null;
   id: string;
   facility_id: string | null;
   evaluation_id: string | null;
@@ -534,6 +535,11 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
 }
 
 export const api = {
+  demoState: () => request<{enabled: boolean; mode: string; label: string; recommendation_id: string | null; facility_id: string; captured_at: string | null}>("/demo/state"),
+  demoRecordings: () => request<{id: string; captured_at: string; label: string}[]>("/demo/recordings"),
+  demoScenario: (mode: string, recording_id?: string) => post<RecommendationDetail>("/demo/scenario", {mode, recording_id}),
+  demoReset: () => post<{recordings_retained: boolean}>("/demo/reset"),
+  demoDeliveryStatus: () => request<{employee_id: string; ntfy_topic: string | null; last_delivery: {at: string; ok: boolean; error: string | null; kind: string} | null}[]>("/demo/delivery-status"),
   investigate: (id: string, body: InvestigationRequest) => request<{investigation_id: string}>(`/recommendations/${id}/investigate`, {method: 'POST', body: JSON.stringify(body), signal: AbortSignal.timeout(15000)}),
   investigations: (id: string) => request<Investigation[]>(`/recommendations/${id}/investigations`, {signal: AbortSignal.timeout(15000)}),
   investigation: (id: string) => request<Investigation>(`/investigations/${id}`),

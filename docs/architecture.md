@@ -185,3 +185,26 @@ managers may answer on a persona's behalf; those reports are explicitly SIMULATE
 For real staff pushes, set `PUBLIC_BASE_URL` to the public HTTPS origin and configure each
 facility-operations person's ntfy topic. Leave `DATABASE_URL` unset to retain production SQLite.
 The optional SQLite-to-Postgres script is retained but is not run by startup or deployment.
+
+### Demo scenarios and reset
+
+`DEMO_MODE=1` exposes manager-only `/api/demo/scenario`, `/api/demo/reset`, recordings and
+delivery-status routes. `/api/demo/state` supplies the global scenario banner. Seeded persona IDs
+are stable; public ntfy topics append `DEMO_TOPIC_SUFFIX` once. Maria, Dana, Jordan, Sam, Lee,
+Priya and Pat follow the presentation roster. Lee's already-teleworking instruction remains an
+email-only FYI; Jordan is unscheduled and requires an explicit manager call-in.
+
+The winter scenario saves SIMULATED alerts, wind/ice, I-70 access and home-zone inputs, then
+uses the unchanged policy and people engines. The synthetic clock is explicitly 04:00 local
+on today (treated as a workday); 65 mph gusts meet the wind closure rule, while ice is context,
+not an invented federal threshold. Replay clones references to saved raw bytes and preserves
+original retrieval times. Neither mode runs live investigation tools. Live exposure uses only
+the current recommendation's evidence IDs, including revisions; global demo injections cannot
+leak into a live evaluation. The national scenario selects the most severe located active US
+alert and evaluates a temporary facility there.
+
+Reset adds `archived_at` to active recommendation/decision/notice/notification/investigation/
+staff-question rows and cancels pending jobs. It joins investigation and dispatch locks and
+disables acknowledgment/escalation work for archived notifications. No rows, evidence, saved
+copies or events are deleted. Historical decisions remain addressable for later memos; a
+`demo_reset` event records the counts, and a new scenario starts a clean active view.

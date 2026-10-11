@@ -25,7 +25,7 @@ from .plan import (PERSONAL, WAVE_ORDER, Plan, Planned, Previous, ack_url, build
                    signature)
 from ..staffing.coverage import CallIn
 
-_send_lock = threading.Lock()
+_send_lock = threading.RLock()
 
 
 class NoDecisionError(Exception):
@@ -43,6 +43,7 @@ def previous_map(db: Session, facility_id: str, day) -> dict[tuple[str, str], Pr
     rows = db.execute(select(models.Notification, models.Notice).join(
         models.Notice, models.Notification.notice_id == models.Notice.id).where(
         models.Notice.facility_id == facility_id, models.Notice.operating_date == day,
+        models.Notice.archived_at.is_(None), models.Notification.archived_at.is_(None),
         models.Notification.sent_at.is_not(None), models.Notification.message_type != "call_in")
         .order_by(models.Notice.version)).all()
     out: dict[tuple[str, str], Previous] = {}
@@ -58,6 +59,7 @@ def previous_map(db: Session, facility_id: str, day) -> dict[tuple[str, str], Pr
 def latest_sent_notice(db: Session, facility_id: str, day) -> models.Notice | None:
     return db.scalar(select(models.Notice).where(models.Notice.facility_id == facility_id,
                                                  models.Notice.operating_date == day,
+                                                 models.Notice.archived_at.is_(None),
                                                  models.Notice.sent_at.is_not(None))
                      .order_by(models.Notice.version.desc()).limit(1))
 
@@ -72,6 +74,8 @@ def plan_for(db: Session, facility: models.Facility, rec: models.Recommendation,
              delay_hours: int | None = None, dismissal_time: str | None = None, now: datetime | None = None,
              previous: dict | None = None, call_ins: list[CallIn] = ()) -> Plan:
     now = now or utcnow()
+    if rec.scenario_context and rec.scenario_context.get("clock"):
+        now = datetime.fromisoformat(rec.scenario_context["clock"])
     people, assignments, shifts, functions, names = load_inputs(db, facility, rec.operating_date)
     demo = rec.target_mode == "demo_workday"
     if demo:  # DEMO: today is evaluated as a workday, so use the weekday schedule for it
@@ -80,7 +84,7 @@ def plan_for(db: Session, facility: models.Facility, rec: models.Recommendation,
         shifts = [s for s in shifts if s.date != rec.operating_date] + roster_shifts(rec.operating_date, workday=True)
     ctx = context_for(facility, rec.operating_date, posture, now, functions, delay_hours, dismissal_time,
                       demo_workday=demo)
-    exposure = exposure_mod.load(db, facility.id, rec.evaluation_id, now)
+    exposure = exposure_mod.load(db, facility.id, rec.evaluation_id, now, evidence_ids=rec.evidence_ids)
     return build_plan(ctx, people, assignments, shifts, functions, exposure, base_url=settings.public_base_url,
                       previous=previous, call_ins=call_ins, facility_names=names)
 
@@ -117,10 +121,13 @@ def create_notice(db: Session, decision: models.Decision, now: datetime | None =
     # Wording: drafts from recommendation time are reused; the LLM is called again only for an
     # override or a new notice version (and only for groups not drafted yet).
     stats = message_agent.fill_messages(
-        plan, allow_llm=decision.action == "override" or version > 1,
+        plan, allow_llm=not rec.scenario_kind and (decision.action == "override" or version > 1),
         evaluation_id=rec.evaluation_id, facility_id=facility.id, budget_key=f"notice:{notice.id}",
         wait_for_predraft=rec.id)
     for p in plan.planned:
+        if rec.scenario_kind and p.included:
+            label = "SIMULATED" if rec.scenario_kind == "simulated" else "REPLAY (not current conditions)"
+            p.subject, p.message = f"{label}: {p.subject}", f"{label}\n{p.message}"
         db.add(_row(p, notice.id))
     record.append(db, "notice.created", {
         "notice_id": notice.id, "decision_id": decision.id, "version": version, "kind": notice.kind,
@@ -172,7 +179,7 @@ def send_notice(db: Session, notice_id: str) -> list[models.Notification]:
     """Send every included, unsent notification: wave 1, then 2, then FYI. Idempotent."""
     with _send_lock:
         notice = db.get(models.Notice, notice_id)
-        if notice is None or db.get(models.Decision, notice.decision_id) is None:
+        if notice is None or notice.archived_at is not None or db.get(models.Decision, notice.decision_id) is None:
             raise NoDecisionError(f"no decision for notice {notice_id}; nothing is sent without an approval record")
         rows = list(db.scalars(select(models.Notification).where(models.Notification.notice_id == notice_id)))
         todo = sorted((n for n in rows if n.included and n.sent_at is None and n.message),
@@ -206,7 +213,9 @@ def send_notice(db: Session, notice_id: str) -> list[models.Notification]:
 # ---------------------------------------------------------------- call-ins
 
 def call_in(db: Session, notice_id: str, body: schemas.CallInIn, now: datetime | None = None) -> models.Notification:
-    """The manager picked a backup for a shortfall: send them a call-in that requires an ack."""
+    """The manager picked a backup for a shortfall: send a call-in requiring acknowledgment."""
+    if db.get(models.Notice, notice_id) and db.get(models.Notice, notice_id).archived_at:
+        raise NoDecisionError("This demo notice was reset")
     notice = db.get(models.Notice, notice_id)
     if notice is None:
         raise NoDecisionError(f"no notice {notice_id}")
@@ -238,6 +247,10 @@ def call_in(db: Session, notice_id: str, body: schemas.CallInIn, now: datetime |
         message_type="call_in", change="initial", instruction=instruction, access=access,
         why_codes=["CALL_IN"], requires_ack=True, ack_url=ack_url(settings.public_base_url, nid))
     subject, text = msg.template(facts)
+    rec = db.get(models.Recommendation, db.get(models.Decision, notice.decision_id).recommendation_id)
+    if rec.scenario_kind:
+        label = "SIMULATED" if rec.scenario_kind == "simulated" else "REPLAY (not current conditions)"
+        subject, text = f"{label}: {subject}", f"{label}\n{text}"
     pub = schemas.Employee.model_validate(person)
     n = models.Notification(
         id=nid, notice_id=notice_id, employee_id=person.id, included=True,
@@ -265,6 +278,8 @@ def call_in(db: Session, notice_id: str, body: schemas.CallInIn, now: datetime |
 # ---------------------------------------------------------------- acknowledgments
 
 def acknowledge(db: Session, notification_id: str) -> models.Notification | None:
+    if db.get(models.Notification, notification_id) and db.get(models.Notification, notification_id).archived_at:
+        return None
     n = db.get(models.Notification, notification_id)
     if n is None:
         return None

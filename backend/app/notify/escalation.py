@@ -12,7 +12,7 @@ from sqlalchemy import select
 from .. import models, record
 from ..config import settings
 from ..db import SessionLocal, utcnow
-from .notices import deliver
+from .notices import _send_lock, deliver
 from .plan import ack_url
 
 
@@ -34,8 +34,9 @@ def _manager_for(db, facility_id: str) -> models.Employee | None:
 
 def _escalation_text(person: models.Employee, n: models.Notification, level: int, sent_local: str) -> tuple[str, str]:
     who = "supervisor" if level == 1 else "facility manager"
-    return (f"No acknowledgment: {person.name}",
-            f"{person.name} has not acknowledged the notice sent at {sent_local} "
+    label = "SIMULATED: " if (n.subject or "").startswith("SIMULATED") else "REPLAY: " if (n.subject or "").startswith("REPLAY") else ""
+    return (f"{label}No acknowledgment: {person.name}",
+            f"{label}{person.name} has not acknowledged the notice sent at {sent_local} "
             f"({n.duty_instruction}). As their {who}, please follow up directly.")
 
 
@@ -44,9 +45,10 @@ def tick(now: datetime | None = None) -> list[str]:
     now = now or utcnow()
     t_remind, t_sup, t_mgr = timers()
     events: list[str] = []
-    with SessionLocal() as db:
+    with _send_lock, SessionLocal() as db:
         pending = db.scalars(select(models.Notification).where(
             models.Notification.requires_ack.is_(True), models.Notification.sent_at.is_not(None),
+            models.Notification.archived_at.is_(None),
             models.Notification.acknowledged_at.is_(None), models.Notification.escalation_level < 2)).all()
         for n in pending:
             notice = db.get(models.Notice, n.notice_id)

@@ -105,6 +105,8 @@ class Evidence(Base):
     # Set by the weather agent when relevance is uncertain (e.g. "alert area adjacent").
     ambiguity_flags: Mapped[list[str]] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(10))  # ok | unknown | stale
+    scenario_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    scenario_kind: Mapped[str | None] = mapped_column(String(12), nullable=True)
 
 
 class Recommendation(Base):
@@ -132,6 +134,10 @@ class Recommendation(Base):
     previous_recommendation_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     revision_diff: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     revision_context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    scenario_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    scenario_kind: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    scenario_context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class Decision(Base):
@@ -146,6 +152,7 @@ class Decision(Base):
     # Posture parameters chosen by the manager (defaults in notify/instructions.yaml).
     delay_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dismissal_time: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class Notice(Base):
@@ -164,6 +171,7 @@ class Notice(Base):
     params: Mapped[dict] = mapped_column(JSON, default=dict)  # delay_hours, report_time, dismissal_time
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class Notification(Base):
@@ -196,6 +204,7 @@ class Notification(Base):
     reminder_sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     escalation_level: Mapped[int] = mapped_column(Integer, default=0)
     escalated_to: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class MessageDraft(Base):
@@ -283,6 +292,7 @@ class Investigation(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     result: Mapped[dict] = mapped_column(JSON, default=dict)
     revised_recommendation_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class StaffQuestion(Base):
@@ -297,6 +307,17 @@ class StaffQuestion(Base):
     responded_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     response: Mapped[str | None] = mapped_column(Text, nullable=True)
     delivery: Mapped[dict] = mapped_column(JSON, default=dict)
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
+class DemoState(Base):
+    __tablename__ = "demo_state"
+    facility_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(32), default="live_next")
+    label: Mapped[str] = mapped_column(Text, default="Live: KC facility, next operating day")
+    recommendation_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    active_facility_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    captured_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 @event.listens_for(RecordEvent, "before_update")

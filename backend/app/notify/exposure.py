@@ -60,25 +60,30 @@ def _alerts_from(value: dict) -> list[ZoneAlert]:
     return out
 
 
-def load(db: Session, facility_id: str, evaluation_id: str | None, now: datetime | None = None) -> Exposure:
+def load(db: Session, facility_id: str, evaluation_id: str | None, now: datetime | None = None,
+         evidence_ids: list[str] | None = None) -> Exposure:
     """Exposure as of the evaluation: its home_zone_alerts row, plus road closures (MoDOT evidence)
     and, in DEMO_MODE, simulated alerts/closures that are still valid."""
     now = now or utcnow()
     alerts: list[ZoneAlert] = []
-    if evaluation_id:
-        row = db.scalar(select(Evidence).where(Evidence.evaluation_id == evaluation_id, Evidence.kind == KIND)
+    scope = Evidence.id.in_(evidence_ids) if evidence_ids is not None else Evidence.evaluation_id == evaluation_id
+    if evaluation_id or evidence_ids is not None:
+        row = db.scalar(select(Evidence).where(scope, Evidence.kind == KIND)
                         .order_by(Evidence.retrieved_at.desc()).limit(1))
         if row and isinstance(row.value, dict):
             alerts += _alerts_from(row.value)
     sources = ["modot", "demo"] if settings.demo_mode else ["modot"]
-    extra = db.scalars(select(Evidence).where(
+    query = select(Evidence).where(
         Evidence.facility_id == facility_id, Evidence.source.in_(sources),
         Evidence.kind.in_(["road_closure", "simulated_zone_alert"]),
-        or_(Evidence.valid_until.is_(None), Evidence.valid_until > now))).all()
+        or_(Evidence.valid_until.is_(None), Evidence.valid_until > now))
+    if evidence_ids is not None:
+        query = query.where(scope)
+    extra = db.scalars(query).all()
     routes = set()
     closed_for: dict[str, set[str]] = {}
-    if evaluation_id:  # official state DOT closures inside an employee's commute corridor (agents/local)
-        for e in db.scalars(select(Evidence).where(Evidence.evaluation_id == evaluation_id,
+    if evaluation_id or evidence_ids is not None:  # only this recommendation's evidence
+        for e in db.scalars(select(Evidence).where(scope,
                                                    Evidence.kind == "local_fact")):
             v = e.value if isinstance(e.value, dict) else {}
             if v.get("authority") == "official_state" and v.get("fact_type") == "road_closure":

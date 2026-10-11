@@ -218,7 +218,9 @@ def recheck(db: Session, facility: models.Facility, day: date, job_key: str | No
             alerts, county = _local_prepare(fac, eid, people)
             local_run.run(fac, eid, alerts, people, county, use_models=False, day=day)
     now = utcnow()
-    prev = db.scalar(select(models.Recommendation).where(models.Recommendation.facility_id == fac.id,
+    prev = db.scalar(select(models.Recommendation).where(models.Recommendation.scenario_kind.is_(None),
+                                                      models.Recommendation.archived_at.is_(None),
+                                                      models.Recommendation.facility_id == fac.id,
                                                          models.Recommendation.operating_date == day)
                      .order_by(models.Recommendation.evaluated_at.desc()).limit(1))
     evidence = weather_agent.evidence_for(eid)

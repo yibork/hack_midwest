@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import people_api, scheduler
+from . import demo, people_api, scheduler
 from .api import public, router
 from .config import settings
 from .db import SessionLocal
@@ -80,6 +80,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 app.include_router(public)
 app.include_router(router)
 app.include_router(people_api.router)
+app.include_router(demo.router)
 
 
 @app.get("/ack/{notification_id}", include_in_schema=False, response_class=HTMLResponse)

@@ -84,6 +84,12 @@ The application uses configured PostgreSQL, with SQLite as a fallback. Raw evide
 
 ## The demo journey
 
+With `DEMO_MODE=1`, the Facility page can switch between live KC, a national alert, saved replay,
+and a labelled winter-storm simulation. Reset demo clears the active view without deleting
+historical records or saved evidence. Subscribe to the seven synthetic personas' QR topics on
+Demo personas; `DEMO_TOPIC_SUFFIX` keeps presentation topics separate. Phone delivery results
+are shown there (Lee intentionally gets no closure push).
+
 **Live evidence → explained recommendation → manager follow-up → approval → targeted notification → decision record.**
 
 *Hackathon prototype using synthetic employee data. Available integrations depend on the deployed build. Recorded and simulated scenarios are labeled separately from live evidence. Facility response rules are prototype policies, not official USDA directives.*
