@@ -70,11 +70,10 @@ Choose the **Facility manager** demo role. Start by evaluating a facility, then 
 *National scan demonstrates live alerts. Use the seeded facility to demonstrate the employee notification workflow; temporary national-scan facilities do not have an employee roster.* -->
 ### From decision to employee action
 
-After manager approval, Closure Call sends instructions tailored to each affected employee. In this example, the facility shifts to telework, but an employee called in for animal care receives an onsite reporting time, building-access information and a confirmation link.
+After manager approval, Closure Call sends clear instructions to affected employees. This example tells an employee to stay home and begin remote work at 07:30, with the weather context behind the decision.
 
-![Example email with employee-specific reporting instructions](email2.jpeg)
+![Example email instructing an employee to work remotely](email1.jpeg)
 
-*Demo notification for a synthetic office, referencing a real NWS flood alert.*
 
 ## AWS: how we use Strands Agents SDK
 
