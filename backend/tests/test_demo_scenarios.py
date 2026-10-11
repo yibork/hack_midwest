@@ -158,6 +158,10 @@ def test_live_relocation_preserves_roster_topics_functions_and_records(demo_db, 
     decision = services.record_decision(demo_db, rec, schemas.DecisionIn(action="approve", manager_name="Maria Alvarez"))
     notice = demo_db.scalar(select(models.Notice).where(models.Notice.decision_id == decision.id))
     assert notice and notices.plan_for_notice(demo_db, notice).planned
+    rows = list(demo_db.scalars(select(models.Notification).where(models.Notification.notice_id == notice.id,
+                                                                              models.Notification.included.is_(True))))
+    assert rows and all("Synthetic facility relocated" in n.message and "DEMO (real NWS)" in n.subject for n in rows)
+    assert services.recommendation_detail(demo_db, rec).people.exposure_status == "unknown"
     rendered = memo.render(demo_db, decision)
     assert "Boulder" in rendered and "High Wind" in rendered and selected.snapshot_hash in rendered
     assert record.verify(demo_db, rec.facility_id)["ok"]
@@ -180,6 +184,46 @@ def test_relocated_missing_sources_remain_unknown_on_refresh(demo_db, monkeypatc
     lp.start([], plan_override={"agents": ["roads"], "model_agents": []}).finish()
     fresh_rows = weather_agent.evidence_for(lp.evaluation_id)
     assert fresh_rows and all(e.status == "unknown" for e in fresh_rows)
+
+
+def test_relocated_demo_selection_revision_and_reset_keep_history(demo_db, monkeypatch):
+    from app import people_api, mapdata
+    rec, scan = relocate_fixture(demo_db, monkeypatch)
+    current = demo.state(demo_db)
+    current.mode, current.active_facility_id, current.recommendation_id = "live_national", rec.facility_id, rec.id
+    current.label = rec.scenario_context["label"]
+    demo_db.commit()
+    assert demo.active_recommendation(demo_db, seed.FACILITY_ID).id == rec.id
+    assert people_api.facility_of(demo_db, seed.emp_id("sam")).id == rec.facility_id
+    assert api_routes.list_facilities(demo_db)[0].id == rec.facility_id
+    assert mapdata.map_for(demo_db, rec)["corridor_cells"] == []
+    assert "not available" in mapdata.map_for(demo_db, rec)["corridor_rule"]
+    assert rec.id in {r["id"] for r in demo.recordings(demo_db)}
+    accepted = investigations.request(demo_db, rec, schemas.InvestigationIn(action="what_would_change"), launch=False)
+    inv = demo_db.get(models.Investigation, accepted["investigation_id"])
+    evidence = services.recommendation_detail(demo_db, rec).evidence
+    revised = investigations.revise(demo_db, inv, rec, evidence)
+    assert revised.target_note == rec.target_note and revised.scenario_context["live_relocated"]
+    decision = services.record_decision(demo_db, revised, schemas.DecisionIn(action="approve", manager_name="Maria Alvarez"))
+    demo.reset(demo_db)
+    assert demo_db.get(models.Decision, decision.id).archived_at
+    assert demo_db.get(models.Evidence, scan.id)
+    assert record.verify(demo_db, rec.facility_id)["ok"]
+
+
+def test_demo_national_requires_explicit_current_choice(demo_db, monkeypatch):
+    with pytest.raises(HTTPException, match="choose"):
+        demo.set_scenario(demo.ScenarioIn(mode="live_national"), demo_db)
+    monkeypatch.setattr(nws, "get_active_alerts_national", lambda **kwargs: ([], []))
+    with pytest.raises(HTTPException, match="no longer"):
+        demo.set_scenario(demo.ScenarioIn(mode="live_national", alert_id="expired"), demo_db)
+
+
+def test_polygon_centroid_is_area_weighted_and_handles_dateline():
+    # Extra vertices on one side must not pull the centroid away from the area's centre.
+    assert nws._centroid({"type": "Polygon", "coordinates": [[[0, 0], [2, 0], [2, 0.5], [2, 1], [2, 2], [0, 2], [0, 0]]]}) == (1, 1)
+    lat, lon = nws._centroid({"type": "Polygon", "coordinates": [[[179, 0], [-179, 0], [-179, 2], [179, 2], [179, 0]]]})
+    assert lat == 1 and abs(lon) == 180
 
 
 @pytest.mark.parametrize("event,rule_id,posture", [("Winter Storm Warning", "winter_storm", "closure"),

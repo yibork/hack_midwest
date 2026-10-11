@@ -3,6 +3,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import RecommendationView from './RecommendationView';
 import type { RecommendationDetail } from '../api';
+import {PeopleStrip} from './People';
+import type {PeopleSummary} from '../api';
 vi.mock('./MapView', () => ({ default: () => null }));
 afterEach(cleanup);
 it('links each trigger and change line to the rule catalog', async () => {
@@ -17,4 +19,12 @@ it('links each trigger and change line to the rule catalog', async () => {
   await screen.findByText(/View threshold and verification/);
   expect(screen.getByText(/View threshold and verification/).closest('a')?.getAttribute('href')).toBe('/thresholds#high_wind');
   expect(screen.getByRole('link', {name: 'Threshold'}).getAttribute('href')).toBe('/thresholds#high_wind');
+});
+
+it('shows unavailable relocated exposure instead of zero exposed commutes', () => {
+  const people = {coverage: [], action_required: 4, fyi: 2, params: {}, exposed_count: 0, minor_commute_count: 0,
+    exposure_status: 'unknown', exposure_note: 'Home-zone exposure: not available for this location'} as unknown as PeopleSummary;
+  render(<PeopleStrip people={people} />);
+  expect(screen.getByText('Home-zone exposure: not available for this location')).toBeTruthy();
+  expect(screen.queryByText(/with an exposed commute/)).toBeNull();
 });

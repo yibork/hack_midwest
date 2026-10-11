@@ -235,7 +235,10 @@ not an invented federal threshold. Replay clones references to saved raw bytes a
 original retrieval times. Neither mode runs live investigation tools. Live exposure uses only
 the current recommendation's evidence IDs, including revisions; global demo injections cannot
 leak into a live evaluation. The national scenario selects the most severe located active US
-alert and evaluates a temporary facility there.
+alert list for a presenter selection and evaluates a cloned synthetic facility there. The clone
+has nullable `demo_origin_id`/`nws_office` metadata, translated synthetic access segments and
+copied assignments/functions; employees, phone topics and KC are unchanged. See sources.md for
+filtering, provenance, real target windows, local coverage limitations and policy 1.0.2.
 
 Reset adds `archived_at` to active recommendation/decision/notice/notification/investigation/
 staff-question rows and cancels pending jobs. It joins investigation and dispatch locks and

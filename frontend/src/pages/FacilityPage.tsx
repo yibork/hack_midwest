@@ -88,12 +88,12 @@ export default function FacilityPage() {
     <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
       <div className="min-w-0 space-y-4">
         <h1 className="text-xl font-bold">{facility?.name}</h1>
+        <DemoScenario onChange={rec => { latest.setData(rec); setParams({facility: rec?.facility_id ?? "usda-kc-demo"}); }} />
         {rec && <RecommendationView rec={rec} actions={<div className="flex flex-wrap gap-2">
           <Link to={`/decide?recommendation=${rec.id}`}><Button disabled={preliminary}>{preliminary ? 'Preliminary — review only' : 'Review and decide'}</Button></Link>
           <Button variant="secondary" onClick={collect} disabled={evaluating || preliminary}>Collect more evidence</Button>
         </div>} />}
         <Disclosure title="Scenario and evaluation settings" summary={`${facility?.address ?? 'Choose facility'} · evaluate a different target day or demo scenario`}>
-        <DemoScenario onChange={rec => { latest.setData(rec); setParams({facility: rec?.facility_id ?? "usda-kc-demo"}); }} />
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             {facilities.data && facilities.data.length > 1 ? (

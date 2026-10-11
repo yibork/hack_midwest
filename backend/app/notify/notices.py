@@ -125,6 +125,10 @@ def create_notice(db: Session, decision: models.Decision, now: datetime | None =
         evaluation_id=rec.evaluation_id, facility_id=facility.id, budget_key=f"notice:{notice.id}",
         wait_for_predraft=rec.id)
     for p in plan.planned:
+        if facility.demo_origin_id and p.included:
+            label = (rec.scenario_context or {}).get("label", "Real NWS evidence · Synthetic relocated facility (demo)")
+            p.subject = f"DEMO (real NWS): {p.subject}"
+            p.message = f"{label}\nHome-zone exposure and local roads: not available for this location.\n{p.message}"
         if rec.scenario_kind and p.included:
             label = "SIMULATED" if rec.scenario_kind == "simulated" else "REPLAY (not current conditions)"
             p.subject, p.message = f"{label}: {p.subject}", f"{label}\n{p.message}"
