@@ -12,6 +12,7 @@ import SourcesPage from "./pages/SourcesPage";
 import TeamPage from "./pages/TeamPage";
 import ThresholdsPage from "./pages/ThresholdsPage";
 import { ScenarioBanner } from "./components/DemoScenario";
+import AcknowledgePage from "./pages/AcknowledgePage";
 
 const NAV: Record<ViewerRole, { to: string; label: string; hint: string }[]> = {
   facility_manager: [
@@ -36,10 +37,10 @@ function Shell() {
   const home = nav[0].to;
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
-      <nav className="bg-slate-900 text-slate-100 md:w-56 md:shrink-0">
+      <nav className="operations-sidebar md:shrink-0" aria-label="Primary navigation">
         <div className="px-4 py-4">
           <div className="text-lg font-extrabold tracking-tight">Closure Call</div>
-          <div className="text-xs text-slate-400">Weather operating-posture support</div>
+          <div className="text-xs text-slate-600">Facility operations support</div>
         </div>
         <div className="px-4 pb-3"><RoleSwitcher /></div>
         <ul className="flex overflow-x-auto md:block">
@@ -48,7 +49,7 @@ function Shell() {
               <NavLink
                 to={n.to}
                 className={({ isActive }) =>
-                  `block px-4 py-3 md:border-l-4 ${isActive ? "bg-slate-800 md:border-yellow-400 font-semibold" : "md:border-transparent hover:bg-slate-800"}`
+                  `block px-4 py-2 border-l-4 ${isActive ? "active font-semibold" : "border-transparent"}`
                 }
               >
                 <div>{n.label}</div>
@@ -96,8 +97,9 @@ function Shell() {
 
 export default function App() {
   return (
-    <RoleProvider>
-      <Shell />
-    </RoleProvider>
+    <Routes>
+      <Route path="/acknowledge/:id" element={<AcknowledgePage />} />
+      <Route path="*" element={<RoleProvider><Shell /></RoleProvider>} />
+    </Routes>
   );
 }

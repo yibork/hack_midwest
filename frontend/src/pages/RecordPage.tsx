@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, type RecordAt, type RecommendationDetail } from "../api";
-import { Button, Card, ConfidenceBadge, ErrorBox, Loading, PostureBadge, StatusBadge, fmtDateTime, useAsync } from "../components/ui";
+import { Button, Card, ConfidenceBadge, ErrorBox, Loading, PolicyDetails, PostureBadge, StatusBadge, fmtDateTime, humanText, ruleLabel, useAsync } from "../components/ui";
 
 const EVENT_COLOR: Record<string, string> = {
   "evidence.fetched": "border-sky-400",
@@ -87,10 +87,10 @@ export default function RecordPage() {
                 <summary className="cursor-pointer py-1 text-sm">
                   <span className="mr-3 font-mono text-xs text-slate-500">#{e.id}</span>
                   <span className="mr-3 tabular-nums text-slate-600">{fmtDateTime(e.timestamp)}</span>
-                  <span className="font-mono font-semibold">{e.event_type}</span>
+                  <span className="font-semibold">{humanText(e.event_type.replaceAll('.', ' — '))}</span>
                   {"status" in e.payload && <span className="ml-2"><StatusBadge status={e.payload.status as "ok"} /></span>}
                 </summary>
-                <pre className="mb-2 overflow-x-auto rounded bg-slate-900 p-3 text-xs text-slate-100">{JSON.stringify(e.payload, null, 2)}</pre>
+                <details className="mb-2"><summary>Technical details</summary><pre className="overflow-x-auto rounded bg-slate-50 p-3 text-xs">{JSON.stringify(e.payload, null, 2)}</pre></details>
               </details>
             </li>
           ))}
@@ -112,11 +112,11 @@ function Snapshot({ title, rec, notificationCount }: { title: string; rec: Recom
             <PostureBadge posture={rec.posture} />
             <ConfidenceBadge confidence={rec.confidence} />
           </div>
-          <div>Evaluated {fmtDateTime(rec.evaluated_at)} · policy <span className="font-mono">{rec.policy_version}</span></div>
-          <div>Triggers: {rec.triggers.length ? rec.triggers.map((t) => t.rule_id).join(", ") : "none"}</div>
+          <div>Evaluated {fmtDateTime(rec.evaluated_at)} · <PolicyDetails version={rec.policy_version} /></div>
+          <div>Triggers: {rec.triggers.length ? rec.triggers.map((t) => ruleLabel(t.rule_id)).join(", ") : "none"}</div>
           <div className="flex flex-wrap gap-1">
             Evidence:
-            {rec.evidence.map((e) => <span key={e.id} className="inline-flex items-center gap-1">{e.kind}<StatusBadge status={e.status} /></span>)}
+            {rec.evidence.map((e) => <span key={e.id} className="inline-flex items-center gap-1">{humanText(e.kind)}<StatusBadge status={e.status} /></span>)}
           </div>
           <div>
             Decision:{" "}

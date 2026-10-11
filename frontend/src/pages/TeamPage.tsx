@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type EmployeePublic } from "../api";
 import { useViewer } from "../components/RoleContext";
-import { Card, ErrorBox, Loading, PostureBadge, fmtTime, useAsync } from "../components/ui";
+import { Card, ErrorBox, Loading, PostureBadge, fmtTime, humanText, useAsync } from "../components/ui";
 
 /** Supervisor: own team only (the server filters). Managers can look at any supervisor's board. */
 export default function TeamPage() {
@@ -68,7 +68,7 @@ export default function TeamPage() {
                 <tr key={n.notification_id} className={`border-t border-slate-100 align-top ${n.included ? "" : "text-slate-500"}`}>
                   <td className="py-2 pr-3"><div className="font-semibold">{n.name}</div><div className="text-xs text-slate-500">{n.audience_text}</div></td>
                   <td className="py-2 pr-3">{n.duty_instruction}</td>
-                  <td className="py-2 pr-3 font-mono text-xs">{n.building_access}</td>
+                  <td className="py-2 pr-3 text-xs">{humanText(n.building_access)}</td>
                   <td className="py-2 pr-3">{n.included ? n.wave : "—"}</td>
                   <td className="py-2 pr-3 whitespace-nowrap">{fmtTime(n.notify_by, tz)}</td>
                   <td className="py-2 pr-3">{!n.included ? "not sent" : n.delivered == null ? "pending" : n.delivered ? "✓ delivered" : "✗ not delivered"}</td>

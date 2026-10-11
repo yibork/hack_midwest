@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { Card, ErrorBox, Loading, PostureBadge, useAsync } from "../components/ui";
+import { Card, ErrorBox, Loading, PostureBadge, humanText, useAsync } from "../components/ui";
 
 const ACCESS_STYLE: Record<string, string> = {
   allowed: "bg-green-100 text-green-900",
@@ -48,12 +48,12 @@ export default function SecurityPage() {
                 <tr key={r.employee_id} className="border-t border-slate-100 align-top">
                   <td className="py-2 pr-3 font-semibold">{r.name}<div className="text-xs font-normal text-slate-500">{r.role.replace("_", " ")}</div></td>
                   <td className="py-2 pr-3">
-                    <span className={`rounded px-2 py-0.5 font-mono text-xs font-bold ${ACCESS_STYLE[r.access.split(" ")[0]] ?? ""}`}>{r.access}</span>
+                    <span className={`rounded px-2 py-0.5 text-xs font-bold ${ACCESS_STYLE[r.access.split(" ")[0]] ?? ""}`}>{humanText(r.access)}</span>
                   </td>
                   <td className="py-2 pr-3 whitespace-nowrap">{r.window}</td>
                   <td className="py-2 pr-3">{r.access_level.replace("_", " ")}</td>
                   <td className="py-2 pr-3">{r.scheduled.replace("_", " ")}</td>
-                  <td className="py-2"><span className="font-mono text-xs">{r.code}</span><div className="text-xs text-slate-500">{r.reason}</div></td>
+                  <td className="py-2"><div className="text-xs text-slate-500">{humanText(r.reason)}</div><details><summary>Technical details</summary><code>{r.code}</code></details></td>
                 </tr>
               ))}
             </tbody>

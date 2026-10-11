@@ -62,10 +62,10 @@ export function Card({ title, children, actions, className = "" }: {
   title?: ReactNode; children: ReactNode; actions?: ReactNode; className?: string;
 }) {
   return (
-    <section className={`rounded-lg border border-slate-200 bg-white shadow-sm ${className}`}>
+    <section className={`rounded border border-slate-200 bg-white ${className}`}>
       {(title || actions) && (
         <header className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600">{title}</h2>
+          <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
           {actions}
         </header>
       )}
@@ -77,7 +77,7 @@ export function Card({ title, children, actions, className = "" }: {
 export function Button({ variant = "primary", className = "", ...props }:
   ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" }) {
   const styles = {
-    primary: "bg-slate-800 text-white hover:bg-slate-700",
+    primary: "bg-blue-700 text-white hover:bg-blue-800",
     secondary: "bg-white text-slate-800 border border-slate-300 hover:bg-slate-50",
     danger: "bg-red-700 text-white hover:bg-red-600",
   }[variant];
@@ -99,7 +99,26 @@ export const POSTURE_STYLE: Record<Posture, string> = {
   closure: "bg-red-700 text-white",
 };
 
-export const postureLabel = (p: Posture) => p.replace("_", " ").toUpperCase();
+export const POSTURE_LABEL: Record<Posture, string> = {normal: "Normal operations", delayed_arrival: "Delayed arrival",
+  early_dismissal: "Early dismissal", telework: "Telework", closure: "Closure"};
+export const postureLabel = (p: Posture) => POSTURE_LABEL[p] ?? String(p).replaceAll("_", " ");
+
+export const ruleLabel = (rule: string) => ({high_wind: "High wind", wind_advisory: "Wind advisory", access_route_closed: "Access route closure",
+  site_hazard_reported: "Site hazard reported", lead_time_confidence: "Forecast lead time", nws_cap: "Alert classification"}[rule] ?? rule.replaceAll("_", " "));
+
+/** Display-only translation; persisted facts, prompts and policy are unchanged. */
+export function humanText(value: string | null | undefined): string {
+  return (value ?? "").replace(/\b(?:normal|delayed_arrival|early_dismissal|telework|closure)\b/gi,
+    code => POSTURE_LABEL[code.toLowerCase() as Posture])
+    .replace(/\b(\d+\.\d+\.\d+)\+[a-f0-9]{8}\b/g, "$1")
+    .replace(/\b[a-z]+(?:_[a-z0-9]+)+\b/gi, code => ruleLabel(code))
+    .replace(/FetchError:/g, "Source fetch failed:");
+}
+
+export function PolicyDetails({version}: {version: string}) {
+  return <details className="text-sm"><summary>Policy {version.split("+")[0].replace(/\.0$/, "")}</summary>
+    <div className="mt-2 text-xs">Technical details: <code>{version}</code></div></details>;
+}
 
 export function PostureBadge({ posture, size = "md" }: { posture: Posture; size?: "sm" | "md" | "xl" }) {
   const sz = {
@@ -120,8 +139,8 @@ export function StatusBadge({ status }: { status: EvidenceStatus }) {
 }
 
 export function ConfidenceBadge({ confidence }: { confidence: Confidence }) {
-  const s = { high: "bg-green-100 text-green-800", medium: "bg-amber-100 text-amber-900", low: "bg-red-100 text-red-800" }[confidence];
-  return <span className={`rounded px-2 py-0.5 text-sm font-bold uppercase ${s}`}>{confidence} confidence</span>;
+  return <span className={`confidence-${confidence} rounded px-2 py-0.5 text-sm font-semibold`}>
+    <span aria-hidden="true">{confidence === "high" ? "✓" : confidence === "medium" ? "◐" : "○"}</span> {confidence[0].toUpperCase() + confidence.slice(1)} confidence</span>;
 }
 
 // ---------------------------------------------------------------- formatting
@@ -130,9 +149,10 @@ export function fmtTime(iso: string | null | undefined, tz?: string, withDate = 
   if (!iso) return "—";
   return new Intl.DateTimeFormat(undefined, {
     timeZone: tz,
-    ...(withDate ? { month: "short", day: "numeric" } : {}),
+    ...(withDate ? { weekday: "short", month: "short", day: "numeric" } : {}),
     hour: "2-digit",
     minute: "2-digit",
+    hourCycle: "h23",
     timeZoneName: tz ? "short" : undefined,
   }).format(new Date(iso));
 }

@@ -1,5 +1,5 @@
 import { type RecommendationDetail, type Trigger } from '../api';
-import { Card, fmtDateTime, postureLabel } from './ui';
+import { Card, fmtDateTime, postureLabel, humanText } from './ui';
 
 const strings = (v: unknown): string[] => Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : [];
 const triggers = (v: unknown): Trigger[] => Array.isArray(v) ? v : [];
@@ -31,19 +31,19 @@ export default function RevisionChanges({rec}: {rec: RecommendationDetail}) {
       ? `Posture: ${postureLabel(diff.changes.posture.before as RecommendationDetail['posture'])} → ${postureLabel(rec.posture)}`
       : `Posture: ${postureLabel(rec.posture)} (unchanged)`}</p>
     <p className="mt-1 text-sm">Confidence: {confidence ? `${confidence.before} → ${confidence.after}` : `${rec.confidence} (unchanged)`}
-      {added.length > 0 && ` — reason added: ${added.join('; ')}`}{removed.length > 0 && ` — reason removed: ${removed.join('; ')}`}</p>
+      {added.length > 0 && ` — reason added: ${humanText(added.join('; '))}`}{removed.length > 0 && ` — reason removed: ${humanText(removed.join('; '))}`}</p>
     <p className="mt-1 text-sm">Recipients: {oldTotal} → {newTotal}{same(oldRecipients, newRecipients) ? ' (no change)' : ` (action required: ${oldRecipients.action} → ${newRecipients.action}; FYI: ${oldRecipients.fyi} → ${newRecipients.fyi})`}</p>
     {meaningful.filter(([field]) => field === 'triggers').flatMap(([, c]) => {
       const old = triggers(c.before), next = triggers(c.after);
       return [
         ...next.filter(t => !old.some(o => same(triggerFacts([o]), triggerFacts([t])))).map(t =>
-          <p className="mt-2 text-sm" key={`trigger-${t.rule_id}`}>Trigger {old.some(o => o.rule_id === t.rule_id) ? 'updated' : 'added'}: {t.description}{t.observed != null ? ` — observed ${t.observed} ${t.units ?? ''}` : ''}</p>),
+          <p className="mt-2 text-sm" key={`trigger-${t.rule_id}`}>Trigger {old.some(o => o.rule_id === t.rule_id) ? 'updated' : 'added'}: {humanText(t.description)}{t.observed != null ? ` — observed ${humanText(String(t.observed))} ${t.units ?? ''}` : ''}</p>),
         ...old.filter(t => !next.some(n => n.rule_id === t.rule_id)).map(t => <p className="mt-2 text-sm" key={`removed-${t.rule_id}`}>Trigger removed: {t.description}</p>),
       ];
     })}
     {diff.changes.what_would_change && <div className="mt-2 text-sm">What would change:
-      {strings(diff.changes.what_would_change.after).filter(s => !strings(diff.changes.what_would_change.before).includes(s)).map(s => <p key={s}>Added: {s}</p>)}
-      {strings(diff.changes.what_would_change.before).filter(s => !strings(diff.changes.what_would_change.after).includes(s)).map(s => <p key={s}>Removed: {s}</p>)}
+      {strings(diff.changes.what_would_change.after).filter(s => !strings(diff.changes.what_would_change.before).includes(s)).map(s => <p key={s}>Added: {humanText(s)}</p>)}
+      {strings(diff.changes.what_would_change.before).filter(s => !strings(diff.changes.what_would_change.after).includes(s)).map(s => <p key={s}>Removed: {humanText(s)}</p>)}
     </div>}
   </Card>;
 }

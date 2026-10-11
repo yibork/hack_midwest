@@ -4,8 +4,9 @@ import { POSTURES, api, type Decision, type Posture, type RecommendationDetail }
 import AgentActivity from "../components/AgentActivity";
 import InvestigationPanel from "../components/InvestigationPanel";
 import NoticePanel from "../components/NoticePanel";
+import RecommendationHero from "../components/RecommendationHero";
 import { PeopleStrip } from "../components/People";
-import { Button, Card, ConfidenceBadge, ErrorBox, Loading, PostureBadge, fmtDateTime, postureLabel, useAsync } from "../components/ui";
+import { Button, Card, ErrorBox, Loading, PostureBadge, fmtDateTime, postureLabel, humanText, useAsync } from "../components/ui";
 
 export default function DecidePage() {
   const [params] = useSearchParams();
@@ -50,20 +51,9 @@ function DecideFlow({ rec: initial }: { rec: RecommendationDetail }) {
       <div className="min-w-0 space-y-4">
         <h1 className="text-2xl font-bold">Decide: {rec.facility.name}</h1>
 
-        <Card title="1 · Recommendation">
-          <div className="flex flex-wrap items-center gap-4">
-            <PostureBadge posture={rec.posture} size="md" />
-            <ConfidenceBadge confidence={rec.confidence} />
-            <span className="text-sm text-slate-600">
-              for {rec.operating_date} · evaluated {fmtDateTime(rec.evaluated_at, tz)} · {rec.triggers.length} trigger(s)
-            </span>
-            <Link className="text-sm underline" to={rec.facility.temporary ? "/national" : `/facility?facility=${rec.facility_id}`}>
-              Full details
-            </Link>
-          </div>
-          <p className="mt-3 text-sm text-slate-700">{rec.rationale}</p>
-          {rec.people && <div className="mt-3"><PeopleStrip people={rec.people} /></div>}
-        </Card>
+        <RecommendationHero rec={rec} actions={<Link className="text-sm underline" to={rec.facility.temporary ? "/national" : `/facility?facility=${rec.facility_id}`}>Review full evidence</Link>} />
+        <Card title="Evidence and staffing"><details><summary>Why this recommendation</summary><p className="mt-2 text-sm text-slate-700">{humanText(rec.rationale)}</p></details>
+          {rec.people && <div className="mt-3"><PeopleStrip people={rec.people} /></div>}</Card>
 
         {decision ? (
           <Card title="2 · Decision recorded">

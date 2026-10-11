@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { api, type CoverageItem, type Decision, type Notification, type NoticeDetail } from "../api";
 import DecisionClock from "./DecisionClock";
 import { CoverageStrip, codeLabel } from "./People";
-import { Button, Card, ErrorBox, Loading, fmtDateTime, fmtTime, useAsync } from "./ui";
+import { Button, Card, ErrorBox, Loading, fmtDateTime, fmtTime, humanText, useAsync } from "./ui";
 
 type WaveFilter = "all" | "1" | "2" | "fyi" | "not_sent";
 const PERSONAL = new Set(["action_required", "fyi", "call_in"]);
@@ -188,7 +188,7 @@ function Recipients({ detail, tz }: { detail: NoticeDetail; tz: string }) {
         {groups.map(([code, list]) => (
           <details key={code} className="rounded border border-slate-200" open={groups.length <= 3}>
             <summary className="cursor-pointer px-3 py-2 font-semibold">
-              {codeLabel(code)} <span className="font-mono text-xs text-slate-500">{code}</span>
+              {codeLabel(code)}
               <span className="ml-2 rounded-full bg-slate-100 px-2 text-sm">{list.length}</span>
             </summary>
             <div className="overflow-x-auto px-3 pb-3">
@@ -232,7 +232,7 @@ function Row({ n, name, tz }: { n: Notification; name: string; tz: string }) {
       </td>
       <td className="py-2 pr-3">
         <div>{n.duty_instruction}</div>
-        <div className="font-mono text-xs text-slate-500">{n.building_access}</div>
+        <div className="text-xs text-slate-500">{humanText(n.building_access)}</div>
       </td>
       <td className="py-2 pr-3 whitespace-nowrap text-xs">
         {!n.requires_ack ? "—" : n.acknowledged_at ? <span className="font-semibold text-green-700">✓ {fmtTime(n.acknowledged_at, tz)}</span>

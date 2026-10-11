@@ -32,14 +32,14 @@ export default function RoleSwitcher() {
         <span className="rounded bg-yellow-400 px-1.5 py-0.5 text-xs font-bold text-slate-900">DEMO</span>
         <label className="text-xs text-slate-400" htmlFor="role">Role</label>
       </div>
-      <select id="role" className="w-full rounded border border-slate-600 bg-slate-800 px-2 py-1 text-slate-100"
+      <select id="role" className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-slate-800"
               value={viewer.role} onChange={(e) => setRole(e.target.value as ViewerRole)}>
         {(Object.keys(ROLE_LABEL) as ViewerRole[]).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
       </select>
       {needsPerson && (
         <div>
           <label className="block text-xs text-slate-400" htmlFor="person">Viewing as</label>
-          <select id="person" className="w-full rounded border border-slate-600 bg-slate-800 px-2 py-1 text-slate-100"
+          <select id="person" className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-slate-800"
                   value={viewer.personId ?? ""} onChange={(e) => setPerson(e.target.value)}>
             {!viewer.personId && <option value="" disabled>Choose a person…</option>}
             {personas.length > 0 && (

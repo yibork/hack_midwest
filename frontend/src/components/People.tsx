@@ -29,7 +29,7 @@ const EXPOSURE_RULE =
 export const codeLabel = (c: string) => CODE_LABEL[c] ?? c.replace(/_/g, " ").toLowerCase();
 
 const COVERAGE_STYLE: Record<CoverageItem["status"], string> = {
-  covered: "border-green-300 bg-green-50 text-green-900",
+  covered: "border-slate-200 bg-white text-slate-700",
   pending: "border-amber-300 bg-amber-50 text-amber-900",
   shortfall: "border-red-400 bg-red-50 text-red-900",
 };
@@ -37,15 +37,20 @@ const COVERAGE_STYLE: Record<CoverageItem["status"], string> = {
 /** "Animal care 1/2 - shortfall" chips. */
 export function CoverageStrip({ coverage }: { coverage: CoverageItem[] }) {
   if (!coverage.length) return null;
+  const issues = coverage.filter(c => c.status !== "covered");
   return (
-    <div className="flex flex-wrap gap-2" aria-label="Critical function staffing">
-      {coverage.map((c) => (
+    <div aria-label="Critical function staffing">
+      {!issues.length && <p className="text-sm text-slate-700">✓ All {coverage.length} critical functions covered</p>}
+      <div className="flex flex-wrap gap-2">{issues.map((c) => (
         <span key={c.code} className={`rounded border px-2 py-1 text-sm font-semibold ${COVERAGE_STYLE[c.status]}`}
               title={[c.available.length ? `Available: ${c.available.join(", ")}` : "Nobody available",
                       c.exposed.length ? `Exposed commute: ${c.exposed.join(", ")}` : ""].filter(Boolean).join("\n")}>
           {c.status === "shortfall" ? "▲ " : c.status === "pending" ? "… " : "✓ "}{c.label}
         </span>
-      ))}
+      ))}</div>
+      <details className="mt-1 text-sm text-slate-600"><summary>Staffing details</summary>
+        {coverage.map(c => <p className="mt-1" key={c.code}>{c.label} · {c.available.length ? c.available.join(", ") : "Nobody available"}</p>)}
+      </details>
     </div>
   );
 }

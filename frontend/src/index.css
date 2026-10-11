@@ -1,6 +1,80 @@
+@import url("https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap");
 @import "tailwindcss";
 
-body {
-  @apply bg-slate-100 text-slate-900 antialiased;
-  font-family: "Public Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+/* USWDS theme/state tokens. This prototype is not an official government website.
+   References: designsystem.digital.gov/design-tokens/color/{theme,state}-tokens/ */
+:root {
+  --base-lightest: #f0f0f0; --base-lighter: #dfe1e2; --base-light: #a9aeb1;
+  --base: #71767a; --base-dark: #565c65; --base-darker: #3d4551; --ink: #1b1b1b;
+  --primary: #005ea2; --primary-dark: #1a4480; --primary-light: #d9e8f6;
+  --success: #216e1f; --success-light: #ecf3ec; --warning: #936f38; --warning-light: #faf3d1;
+  --error: #b50909; --error-light: #f4e3db; --orange: #c05600; --white: #fff;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-6: 24px; --space-8: 32px; --space-10: 40px;
+  --type-small: 14px; --type-body: 16px; --type-heading: 20px; --type-title: 28px; --type-display: 40px;
+  --radius: 3px; --border: 1px solid var(--base-lighter);
 }
+@theme {
+  --font-sans: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --text-xs: 0.875rem; --text-sm: 0.875rem; --text-base: 1rem; --text-lg: 1.25rem;
+  --text-xl: 1.25rem; --text-2xl: 1.75rem; --text-3xl: 1.75rem; --text-4xl: 2.5rem; --text-6xl: 2.5rem;
+  --radius-lg: 4px; --radius-xl: 4px; --radius-full: 4px;
+  --shadow-sm: none;
+  --color-slate-50: #f9f9f9; --color-slate-100: #f0f0f0; --color-slate-200: #dfe1e2;
+  --color-slate-300: #a9aeb1; --color-slate-400: #71767a; --color-slate-500: #565c65;
+  --color-slate-600: #3d4551; --color-slate-700: #3d4551; --color-slate-800: #1b1b1b; --color-slate-900: #1b1b1b;
+  --color-blue-700: #005ea2; --color-green-700: #216e1f; --color-red-700: #b50909;
+}
+body { background: var(--base-lightest); color: var(--ink); font: 400 var(--type-body)/1.5 var(--font-sans); }
+h1, h2, h3 { line-height: 1.2; text-wrap: balance; }
+a { color: var(--primary); }
+button, input, select, textarea, section, aside { border-radius: var(--radius); }
+input:not([type="radio"]):not([type="checkbox"]), select, textarea { background: var(--white); color: var(--ink); max-width: 100%; }
+button, input, select, textarea, summary, a { scroll-margin: 1rem; }
+:focus-visible { outline: 3px solid #2491ff; outline-offset: 2px; }
+button, select { min-height: 36px; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+summary { cursor: pointer; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+table { border-collapse: collapse; width: 100%; font-size: var(--type-small); }
+th { position: sticky; top: 0; z-index: 1; background: var(--base-lightest); color: var(--ink); font-weight: 700; border-bottom: 2px solid var(--base-light); }
+th, td { padding: 8px 12px; text-align: left; }
+tbody tr:nth-child(even) { background: #f9f9f9; }
+tbody tr { border-bottom: var(--border); }
+.overflow-x-auto:has(> table) { overflow: auto; max-height: 34rem; }
+.animate-spin { border-radius: 50%; }
+.operations-sidebar { background: var(--white); border-right: var(--border); min-width: 0; }
+.operations-sidebar a { color: var(--base-darker); }
+.operations-sidebar a.active { background: var(--primary-light); border-left-color: var(--primary); color: var(--primary-dark); }
+.operations-sidebar a:hover { background: var(--base-lightest); }
+.scenario-banner { color: var(--ink); font-size: var(--type-small); }
+.posture-hero { border-left: 6px solid var(--posture-color); }
+.posture-normal { --posture-color: var(--success); }
+.posture-delayed_arrival { --posture-color: var(--warning); }
+.posture-early_dismissal { --posture-color: var(--orange); }
+.posture-telework { --posture-color: var(--primary); }
+.posture-closure { --posture-color: var(--error); }
+.hero-label { color: var(--ink); font-size: var(--type-display); font-weight: 800; line-height: 1.1; }
+.hero-metrics { display: flex; flex-wrap: wrap; gap: 12px 24px; border-top: var(--border); padding-top: 12px; margin-top: 16px; font-size: 14px; }
+.hero-metrics > div { min-width: 110px; }
+.metric-label { display: block; color: var(--base-dark); }
+.confidence-low { color: var(--base-darker); background: var(--base-lightest); }
+.confidence-medium { color: #6b4e1c; background: var(--warning-light); }
+.confidence-high { color: var(--success); background: var(--success-light); }
+.threshold-progress { height: 6px; background: var(--base-lighter); overflow: hidden; margin-top: 6px; }
+.threshold-progress > span { display: block; height: 100%; background: var(--primary); }
+.timeline-step { border-left: 2px solid var(--base-lighter); padding: 6px 0 6px 12px; }
+.personal-status { max-width: 36rem; margin: 0 auto; }
+.personal-status .instruction { font-size: 28px; font-weight: 700; line-height: 1.3; }
+@media (min-width: 768px) { .operations-sidebar { width: 208px; } main { max-width: 1800px; } }
+@media (max-width: 767px) {
+  main { padding: 12px !important; }
+  .operations-sidebar { border-right: 0; border-bottom: var(--border); }
+  .hero-label { font-size: 28px; }
+  .hero-metrics { gap: 12px; }
+  .hero-metrics > div { flex: 1 1 45%; }
+  .personal-status .instruction { font-size: 28px; }
+  button { min-height: 44px; }
+}
+@media print { nav, .scenario-banner, button { display: none !important; } body { background: white; } main { padding: 0 !important; } }

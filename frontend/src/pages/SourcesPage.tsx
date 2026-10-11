@@ -1,7 +1,7 @@
 import { api } from "../api";
 import MapView from "../components/MapView";
 import { AuthorityBadge } from "../components/LocalSignals";
-import { Card, ErrorBox, Loading, fmtDateTime, useAsync } from "../components/ui";
+import { Card, ErrorBox, Loading, fmtDateTime, humanText, useAsync } from "../components/ui";
 
 const STATUS_STYLE: Record<string, string> = {
   ok: "bg-green-100 text-green-800", unknown: "bg-red-100 text-red-800", skipped: "bg-slate-200 text-slate-700",
@@ -38,7 +38,7 @@ export default function SourcesPage() {
                 <tr key={s.id} className="border-t border-slate-100 align-top">
                   <td className="py-2 pr-3">
                     <a className="font-semibold underline" href={s.link ?? s.url} target="_blank" rel="noreferrer">{s.name}</a>
-                    <div className="break-all font-mono text-[11px] text-slate-500">{s.kind} · {s.url}</div>
+                    <details className="text-sm text-slate-600"><summary>Technical details</summary><div className="break-all">{s.kind} · {s.url}</div></details>
                     <div className="text-xs text-slate-500">every {s.refresh_minutes} min · {(s.area.counties ?? []).join(", ")}</div>
                   </td>
                   <td className="py-2 pr-3">{s.agent.replace("_", " ")}</td>
@@ -48,9 +48,8 @@ export default function SourcesPage() {
                     {s.error && <div className="text-xs text-red-700">{s.error}</div>}</td>
                   <td className="py-2 pr-3">{s.items_found ?? "—"}</td>
                   <td className="py-2 pr-3 text-xs">
-                    <div className="font-semibold">{s.coordinates.geometry ?? "none"}</div>
-                    {s.coordinates.fields && s.coordinates.fields !== "none" && <div className="font-mono">{s.coordinates.fields}</div>}
-                    {s.coordinates.crs && <div className="text-slate-500">{s.coordinates.crs}</div>}
+                    <div className="font-semibold">{humanText(s.coordinates.geometry ?? "No coordinates")}</div>
+                    <details><summary>Technical details</summary><div>{s.coordinates.fields}</div><div>{s.coordinates.crs}</div></details>
                   </td>
                   <td className="py-2 text-xs text-slate-600">{s.robots}</td>
                 </tr>

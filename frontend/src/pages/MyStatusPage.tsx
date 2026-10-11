@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { Button, ErrorBox, Loading, PostureBadge, fmtTime, useAsync } from "../components/ui";
+import { Button, ErrorBox, Loading, PostureBadge, fmtTime, humanText, useAsync } from "../components/ui";
 
 /** Employee: what to do today, building access, and the acknowledge button. */
 export default function MyStatusPage() {
@@ -29,15 +29,15 @@ export default function MyStatusPage() {
   }
 
   return (
-    <div className="mx-auto max-w-xl space-y-4 text-lg">
-      <h1 className="text-2xl font-bold">Hello, {s.employee.name.split(" ")[0]}</h1>
-      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="personal-status text-lg">
+      <div className="rounded border border-slate-200 bg-white p-5">
+        <h1 className="mb-3 text-2xl font-bold">Hello, {s.employee.name.split(" ")[0]}</h1>
         <div className="text-sm uppercase tracking-wide text-slate-500">{s.facility_name} · {s.operating_date}</div>
         {s.posture && <div className="mt-2"><PostureBadge posture={s.posture} /></div>}
         <div className="mt-4 text-sm font-semibold uppercase text-slate-500">What to do</div>
-        <div className="text-2xl font-bold">{s.duty_instruction}</div>
+        <div className="instruction">{humanText(s.duty_instruction)}</div>
         <div className="mt-4 text-sm font-semibold uppercase text-slate-500">Building access</div>
-        <div className="font-mono">{s.building_access}</div>
+        <div>{humanText(s.building_access)}</div>
         {n?.audience_text && <p className="mt-4 text-sm text-slate-600">Why: {n.audience_text}</p>}
         {n?.requires_ack && (
           <div className="mt-5">
@@ -49,13 +49,13 @@ export default function MyStatusPage() {
           </div>
         )}
         {error && <div className="mt-3"><ErrorBox error={error} /></div>}
-      </div>
       {n?.message && (
-        <details className="rounded border border-slate-200 bg-white p-3 text-base">
+        <details className="mt-4 border-t border-slate-200 pt-3 text-base">
           <summary className="cursor-pointer">The message you were sent</summary>
-          <pre className="mt-2 whitespace-pre-wrap font-sans">{n.message}</pre>
+          <p className="mt-2 whitespace-pre-wrap">{humanText(n.message)}</p>
         </details>
       )}
+      </div>
     </div>
   );
 }

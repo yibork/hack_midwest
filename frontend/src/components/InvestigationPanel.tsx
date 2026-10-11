@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, type Investigation, type InvestigationRequest, type RecommendationDetail } from '../api';
-import AgentActivity from './AgentActivity';
-import { Button, Card, ErrorBox, Loading, useAsync } from './ui';
+import AgentActivity, { toolSentence } from './AgentActivity';
+import { Button, Card, ErrorBox, Loading, humanText, ruleLabel, useAsync } from './ui';
 import RevisionChanges from './RevisionChanges';
 
 export default function InvestigationPanel({rec, onRevision}: {rec: RecommendationDetail; onRevision: (id: string) => void | Promise<void>}) {
@@ -86,7 +86,7 @@ export default function InvestigationPanel({rec, onRevision}: {rec: Recommendati
         <Button type="submit" disabled={busy}>Schedule for this target day</Button>
       </form>}
       {form === 'staff' && <form className="mt-3 space-y-2" onSubmit={e => {e.preventDefault(); submit({action: 'ask_staff', question: question || `Are site conditions unsafe during ${rec.operating_date}'s commute window?`, ...(employee === 'role' ? {role: 'facility_ops'} : {employee_id: employee}), options: ['Unsafe', 'Safe', 'Unsure']});}}>
-        <label className="text-sm">Recipient<select aria-label="Staff recipient" className="block w-full rounded border p-2" value={employee} onChange={e => setEmployee(e.target.value)}><option value="role">All assigned facility operations staff</option>{candidates.data?.map(p => <option key={p.id} value={p.id}>{p.name} ({p.role})</option>)}</select></label>
+        <label className="text-sm">Recipient<select aria-label="Staff recipient" className="block w-full rounded border p-2" value={employee} onChange={e => setEmployee(e.target.value)}><option value="role">All assigned facility operations staff</option>{candidates.data?.map(p => <option key={p.id} value={p.id}>{p.name} ({humanText(p.role)})</option>)}</select></label>
         <p className="text-xs text-slate-600">Uses the question above, or asks whether the site is unsafe during this day's commute. Replies: Unsafe / Safe / Unsure.</p>
         <Button type="submit" disabled={busy || !candidates.data?.length}>Send evidence request</Button>
       </form>}
@@ -95,18 +95,30 @@ export default function InvestigationPanel({rec, onRevision}: {rec: Recommendati
       {chips.error && <ErrorBox error={`Suggestions unavailable: ${chips.error}`} onRetry={chips.reload} />}
     </Card>
     <RevisionChanges rec={rec} />
-    <div className="space-y-3" aria-label="Investigation thread">{thread.map(i => <Card key={i.id} title={i.question}>
+    <div className="space-y-3" aria-label="Investigation thread">{thread.map(i => <Card key={i.id} title={humanText(i.question)}>
       <p className="text-xs text-slate-500">{i.status.replace(/_/g, ' ')}</p>
       {['pending','running'].includes(i.status) && <div role="status"><Loading label={i.status === 'pending' ? 'Queued — waiting to start' : 'Checking evidence…'} /></div>}
       <AgentActivity evaluationId={i.id} live={['pending','running'].includes(i.status)} />
-      {!!i.result.tools_used?.length && <p className="my-1 text-xs text-slate-600">Tools: {i.result.tools_used.join(', ')}</p>}
-      {i.result.answer && <><p className="mt-2 text-sm leading-relaxed">{i.result.answer}</p><p className="mt-2 text-xs font-semibold text-indigo-800">{i.result.source_label}</p></>}
-      <div className="mt-2 flex flex-wrap gap-2 text-xs">{Array.from(new Set([...(i.result.evidence_ids ?? []), ...(i.result.new_evidence_ids ?? [])])).map(id => <a className="underline" key={id} href={`/api/evidence/${id}`} target="_blank" rel="noreferrer">Evidence {id.slice(0,8)}</a>)}{i.result.policy_ids?.map(id => <Link className="underline" key={id} to={`/thresholds#${id}`}>{id}</Link>)}</div>
-      {i.result.limitations?.map((l,j) => <p key={j} className="mt-1 text-xs text-amber-800">{l}</p>)}
-      {i.result.could_not_answer_because && <p className="mt-1 text-xs text-amber-800">Could not answer: {i.result.could_not_answer_because}</p>}
+      {!!i.result.tools_used?.length && <details className="my-2 text-sm"><summary>Checks performed</summary>{i.result.tools_used.map((tool, j) => <p key={j}>{toolSentence(tool)}</p>)}</details>}
+      {i.result.answer && <><p className="mt-2 text-sm leading-relaxed"><CitedAnswer text={i.result.answer} /></p><p className="mt-2 text-xs font-semibold text-slate-600">{i.result.source_label}</p></>}
+      <div className="mt-2 flex flex-wrap gap-2 text-xs">{Array.from(new Set([...(i.result.evidence_ids ?? []), ...(i.result.new_evidence_ids ?? [])])).map((id, j) => <a className="underline" key={id} href={`/api/evidence/${id}`} target="_blank" rel="noreferrer">Saved evidence {j + 1}</a>)}{i.result.policy_ids?.map(id => <Link className="underline" key={id} to={`/thresholds#${id}`}>{ruleLabel(id)}</Link>)}</div>
+      {i.result.limitations?.map((l,j) => <p key={j} className="mt-1 text-xs text-amber-800">{humanText(l)}</p>)}
+      {i.result.could_not_answer_because && <p className="mt-1 text-xs text-amber-800">Could not answer: {humanText(i.result.could_not_answer_because)}</p>}
       {i.staff_questions.map(s => <div key={s.id} className="mt-3 rounded border border-slate-200 bg-slate-50 p-2 text-xs"><strong>{candidates.data?.find(p => p.id === s.employee_id)?.name ?? s.employee_id}: {s.status}</strong><p>{s.question}</p><p>{s.response ?? `Expires ${new Date(s.expires_at).toLocaleString()}`}</p>{!s.delivery.ok && <p className="text-amber-800">Push not delivered: {s.delivery.error}</p>}
         {health.data?.demo_mode && s.status === 'pending' && <div className="mt-2"><p>SIMULATED for the demo: answer on this persona's behalf</p>{s.options.map(o => <button key={o} className="mr-2 rounded border bg-yellow-100 px-2 py-1" onClick={async () => {try {const r = await api.demoStaffResponse(s.id,o); onRevision(r.recommendation_id);} catch(e) {setError(String(e));}}}>{o}</button>)}</div>}
       </div>)}
     </Card>)}</div>
   </aside>;
+}
+
+export function CitedAnswer({text}: {text: string}) {
+  const parts = text.split(/(\[(?:evidence:)?[a-f0-9]{32}\]|\[policy:[\w-]+\])/g);
+  let evidenceIndex = 0;
+  return <>{parts.map((part, j) => {
+    const evidence = part.match(/^\[(?:evidence:)?([a-f0-9]{32})\]$/);
+    if (evidence) return <a key={j} className="underline" href={`/api/evidence/${evidence[1]}`}>[saved evidence {++evidenceIndex}]</a>;
+    const policy = part.match(/^\[policy:([\w-]+)\]$/);
+    if (policy) return <Link key={j} className="underline" to={`/thresholds#${policy[1]}`}>[{ruleLabel(policy[1])}]</Link>;
+    return <span key={j}>{humanText(part)}</span>;
+  })}</>;
 }

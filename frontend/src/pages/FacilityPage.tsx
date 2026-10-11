@@ -134,7 +134,7 @@ export default function FacilityPage() {
               ) : (
                 <Link to={`/decide?recommendation=${rec.id}`}>
                   <Button variant={rec.decision ? "secondary" : "primary"}>
-                    {rec.decision ? "View decision & notifications" : "Approve or override →"}
+                    {rec.decision ? "View decision & notifications" : "Review and decide"}
                   </Button>
                 </Link>
               )
