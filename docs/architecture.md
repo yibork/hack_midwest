@@ -117,9 +117,10 @@ The team's inference quota is shared: 60 requests/min across all endpoints.
 - **What a job runs.** The *deterministic* pipeline: NWS tools in code, local signals with the
   rules plan, and road facts from the cache or code extraction. No model calls.
 - **Then.** It compares posture, triggers and confidence with the latest recommendation for
-  that day. Only if something changed does it run the full pipeline with agents, which stores a
-  new recommendation labelled "Scheduled re-evaluation". Either way it records
-  `scheduled.recheck`.
+  that day. When something changes, existing recommendations receive a linked deterministic
+  revision, preserving the calendar explanation; the scheduled-job label is stored separately.
+  A day with no earlier recommendation uses the normal evaluation pipeline. Either way it
+  records `scheduled.recheck`.
 - **Past days.** Jobs for days already gone are skipped.
 - **Decision record.** Each decision records the forecast lead time (hours to the commute window).
 
@@ -162,6 +163,17 @@ The pure engine reruns sufficiency, rules and lead-time confidence; the people e
 recipient-count differences. A pending revision is preliminary and cannot be approved; neither
 can its superseded predecessor. Audit events retain requests, tools, evidence, answers and diffs.
 On restart, interrupted checks settle from stored evidence without resending staff requests.
+Revisions preserve the root recommendation's `target_note` unchanged. Their `revision_context`
+stores the investigation/recheck/staff/scheduled-job cause, question and timestamp separately.
+Diffs ignore refreshed evidence IDs and citation bookkeeping; the UI hides unchanged checks and
+describes meaningful trigger, confidence-reason and recipient changes in plain language.
+
+Before a revision evaluates old evidence, expired source windows cause deterministic refetches
+(NWS, NOAA river or allowlisted local sources), bypassing the affected HTTP cache. No inference
+is used for freshness. Successful refreshes replace expired rows in the new recommendation;
+failed refreshes retain an additive stale copy with the last successful retrieval time and a
+refresh-failure note. Historical evidence is never edited. Record-only explanations still read
+the saved record without tools.
 
 Staff questions target assigned `facility_ops` people. ntfy HTTP-action buttons POST one offered
 option to a single-use hashed token, expiring after two hours; an HTML form is the link fallback.
@@ -173,3 +185,26 @@ managers may answer on a persona's behalf; those reports are explicitly SIMULATE
 For real staff pushes, set `PUBLIC_BASE_URL` to the public HTTPS origin and configure each
 facility-operations person's ntfy topic. Leave `DATABASE_URL` unset to retain production SQLite.
 The optional SQLite-to-Postgres script is retained but is not run by startup or deployment.
+
+### Demo scenarios and reset
+
+`DEMO_MODE=1` exposes manager-only `/api/demo/scenario`, `/api/demo/reset`, recordings and
+delivery-status routes. `/api/demo/state` supplies the global scenario banner. Seeded persona IDs
+are stable; public ntfy topics append `DEMO_TOPIC_SUFFIX` once. Maria, Dana, Jordan, Sam, Lee,
+Priya and Pat follow the presentation roster. Lee's already-teleworking instruction remains an
+email-only FYI; Jordan is unscheduled and requires an explicit manager call-in.
+
+The winter scenario saves SIMULATED alerts, wind/ice, I-70 access and home-zone inputs, then
+uses the unchanged policy and people engines. The synthetic clock is explicitly 04:00 local
+on today (treated as a workday); 65 mph gusts meet the wind closure rule, while ice is context,
+not an invented federal threshold. Replay clones references to saved raw bytes and preserves
+original retrieval times. Neither mode runs live investigation tools. Live exposure uses only
+the current recommendation's evidence IDs, including revisions; global demo injections cannot
+leak into a live evaluation. The national scenario selects the most severe located active US
+alert and evaluates a temporary facility there.
+
+Reset adds `archived_at` to active recommendation/decision/notice/notification/investigation/
+staff-question rows and cancels pending jobs. It joins investigation and dispatch locks and
+disables acknowledgment/escalation work for archived notifications. No rows, evidence, saved
+copies or events are deleted. Historical decisions remain addressable for later memos; a
+`demo_reset` event records the counts, and a new scenario starts a clean active view.

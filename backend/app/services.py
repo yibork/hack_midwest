@@ -27,6 +27,7 @@ def store_evidence(db: Session, evidence: list[schemas.Evidence], facility_id: s
         record.append(db, "evidence.fetched", {
             "evidence_id": ev.id, "source": ev.source, "kind": ev.kind, "status": ev.status,
             "url": ev.url, "snapshot_hash": ev.snapshot_hash, "relevance_note": ev.relevance_note,
+            "scenario_kind": ev.scenario_kind,
         }, facility_id=facility_id, timestamp=ev.retrieved_at, evaluation_id=evaluation_id)
 
 

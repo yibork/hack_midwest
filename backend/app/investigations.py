@@ -5,7 +5,7 @@ import re
 import secrets
 import threading
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
@@ -22,12 +22,12 @@ from .db import SessionLocal, utcnow
 from .notify import exposure
 from .notify.plan import load_inputs
 from .rules.engine import compute_windows, evaluate, load_policy, policy_catalog
-from .sources import nwps
+from .sources import nwps, nws, local_signals
 
 CHECKS = {"check_commute_routes", "check_access_routes", "check_river", "check_local_closures", "recheck_now"}
 RECORD_ACTIONS = {"explain_confidence", "what_would_change"}
 _threads = {}
-_run_lock = threading.Lock()  # serialize revisions and staff responses in this single-process app
+_run_lock = threading.RLock()  # serialize revisions, staff responses and demo resets
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 _CITATION = re.compile(r"\[(evidence|policy):([^\]]+)\]")
 _CONDITIONAL = re.compile(r"\b(if|unless|would|could|might)\b", re.I)
@@ -118,7 +118,9 @@ def question_check(question):
     return None
 
 
-def request(db, rec, body, *, launch=True):
+def request(db, rec, body, *, launch=True, scheduled_job=None):
+    if rec.archived_at:
+        raise HTTPException(409, "This demo recommendation was reset; evaluate again")
     if rec.status == "preliminary":
         raise HTTPException(409, "Wait for the current evidence check to finish")
     child = db.scalar(select(models.Recommendation.id).where(models.Recommendation.previous_recommendation_id == rec.id).limit(1))
@@ -141,6 +143,8 @@ def request(db, rec, body, *, launch=True):
                                question=(body.question or body.action.replace('_', ' ')).strip(),
                                action=body.action, request=body.model_dump(mode="json"), status="pending")
     db.add(row)
+    if scheduled_job:
+        row.request = {**row.request, "scheduled_job": scheduled_job}
     record.append(db, "investigation_requested", {"investigation_id": row.id, "recommendation_id": rec.id,
                   "question": row.question, "action": row.action, "operating_date": rec.operating_date},
                   facility_id=rec.facility_id, evaluation_id=row.id)
@@ -201,7 +205,7 @@ def run_check(action, state):
                 lp.finish()
         else:
             # Forced specialist plan; existing allowlist, geographic validation and road cache.
-            agents = ["roads"] if "routes" in action else ["roads", "schools", "public_safety"]
+            agents = ["roads"] if "routes" in action else ["roads", "schools", "public_safety", "news"]
             lp = local_run.LocalPass(fac, eid, rec.operating_date, people, None, use_models=False)
             lp.start([], plan_override={"agents": agents, "model_agents": []})
             lp.finish()
@@ -445,12 +449,86 @@ def merge_evidence(old, new):
     return list({e.id: e for e in keep + new}.values())
 
 
+def refresh_expired(evidence, state):
+    """Refetch expired sources in code; never ask a model whether old data is fresh.
+
+    Failed refreshes retain a separately stored stale copy, with the last successful
+    retrieval timestamp. Existing evidence and recommendation records are not edited.
+    """
+    now = utcnow()
+    saved = [schemas.Evidence.model_validate(e) for e in evidence]
+    sources = {s.id: s for s in local_signals.sources()}
+    def expired(e):
+        if e.scenario_kind in {"simulated", "replay"}:
+            return False  # replay/simulation may never fetch live evidence
+        if e.source not in {"nws", "nwps", "local"}:
+            return False
+        if e.status == "stale" or (e.valid_until and e.valid_until <= now):
+            return True
+        source_id = e.value.get("source_id") if isinstance(e.value, dict) else None
+        if source_id in sources:
+            return now - e.retrieved_at > timedelta(minutes=sources[source_id].refresh_minutes)
+        freshness = {"active_alerts": 15, "home_zone_alerts": 15, "hourly_forecast": 180,
+                     "wind_forecast": 180, "point": 1440, "river_categories": 15, "river_forecast": 15}
+        return e.kind in freshness and now - e.retrieved_at > timedelta(minutes=freshness[e.kind])
+    old = [e for e in saved if expired(e)]
+    if not old:
+        return evidence
+    event(state, "investigation.refresh_started", kinds=sorted({e.kind for e in old}))
+    actions = []
+    if any(e.source == "nws" for e in old):
+        nws.clear_cache()
+        actions.append("recheck_now")
+    if any(e.source == "nwps" for e in old):
+        actions.append("check_river")
+    if any(e.source == "local" for e in old):
+        local_signals.invalidate_cache({e.value.get("source_id") for e in old if isinstance(e.value, dict)})
+        actions.append("check_local_closures")
+    failures = []
+    for action in actions:
+        try:
+            run_check(action, state)
+        except Exception as exc:
+            failures.append(f"{action}: {type(exc).__name__}")
+            event(state, "investigation.refresh_failed", tool=action, reason=type(exc).__name__)
+    new = weather_agent.evidence_for(state["evaluation_id"])
+    stale_copies = []
+    refreshed_count = 0
+    for e in old:
+        source_id = e.value.get("source_id") if isinstance(e.value, dict) else None
+        matches = [n for n in new if (n.source == e.source and n.kind == e.kind and e.source != "local") or
+                   (e.source == "local" and n.kind == "local_feed" and isinstance(n.value, dict) and
+                    n.value.get("source_id") == source_id)]
+        if matches and any(n.status == "ok" for n in matches):
+            refreshed_count += 1
+            continue
+        if e.status == "unknown":
+            continue  # There was no successful old observation to preserve as stale.
+        # A successfully fetched but still out-of-date upstream product is not fresh evidence.
+        reason = "; ".join(failures) or "Refetch returned no fresh data for this source"
+        values = e.value if isinstance(e.value, dict) else {"saved_value": e.value}
+        stale_copies.append(e.model_copy(update={"id": uuid.uuid4().hex, "status": "stale",
+            "retrieved_at": utcnow(), "value": {**values, "last_successful_retrieved_at": values.get("last_successful_retrieved_at", e.retrieved_at.isoformat()),
+                "refresh_error": reason}, "relevance_note": e.relevance_note + f"; refresh failed: {reason}"}))
+    if stale_copies:
+        services.store_evidence_now(stale_copies, state["facility_id"], state["evaluation_id"])
+        new = weather_agent.evidence_for(state["evaluation_id"])
+    event(state, "investigation.refresh_finished", refreshed=refreshed_count, stale=len(stale_copies))
+    return merge_evidence(saved, new)
+
+
 def diff(db, before, after):
     facility = db.get(models.Facility, before.facility_id)
     old_people, new_people = services.people_summary(db, before, facility), services.people_summary(db, after, facility)
     changes = {field: {"before": getattr(before, field), "after": getattr(after, field)} for field in
                ("posture", "confidence", "confidence_reasons", "triggers", "what_would_change")
                if getattr(before, field) != getattr(after, field)}
+    # Fresh evidence IDs and citation bookkeeping alone are not an operational change.
+    def trigger_facts(items):
+        fields = ("rule_id", "description", "posture", "threshold", "observed", "margin", "units")
+        return sorted([json.dumps({k: t.get(k) for k in fields}, sort_keys=True) for t in items])
+    if trigger_facts(before.triggers) == trigger_facts(after.triggers):
+        changes.pop("triggers", None)
     a = {"action_required": old_people.action_required, "fyi": old_people.fyi} if old_people else {}
     b = {"action_required": new_people.action_required, "fyi": new_people.fyi} if new_people else {}
     if a != b:
@@ -458,13 +536,32 @@ def diff(db, before, after):
     return {"changed": bool(changes), "changes": changes, "recipient_counts": {"before": a, "after": b}}
 
 
+def original_target_note(db, rec):
+    # Also recover the explanation when following a revision made by the previous build.
+    root = db.get(models.Recommendation, root_key(db, rec))
+    return root.target_note if root is not None else rec.target_note
+
+
+def revision_context(investigation):
+    kind = "scheduled_job" if investigation.request.get("scheduled_job") else "recheck" if investigation.action == "recheck_now" else "staff_response" if investigation.action == "ask_staff" else "investigation"
+    labels = {"scheduled_job": "Scheduled job", "recheck": "Recheck", "staff_response": "Staff response", "investigation": "Investigation question"}
+    return {"kind": kind, "label": labels[kind], "question": investigation.question,
+            "at": utcnow().isoformat(), "investigation_id": investigation.id}
+
+
 def revise(db, investigation, before, evidence, *, pending=False):
     facility = db.get(models.Facility, before.facility_id)
     result = evaluate(schemas.Facility.model_validate(facility), [schemas.Evidence.model_validate(e) for e in evidence],
-                      utcnow(), operating_date=before.operating_date, target_mode=before.target_mode or "explicit",
-                      target_note=f"Investigation for saved target day {before.operating_date}")
+                      datetime.fromisoformat(before.scenario_context["clock"]) if before.scenario_context else utcnow(),
+                      operating_date=before.operating_date, target_mode=before.target_mode or "explicit",
+                      target_note=original_target_note(db, before))
+    if before.scenario_kind:
+        result.rationale = ("SIMULATED. " if before.scenario_kind == "simulated" else "REPLAY (not current conditions). ") + result.rationale
     values = result.model_dump(exclude={"triggers"}, mode="python")
     values.update(evaluation_id=investigation.id, previous_recommendation_id=before.id,
+                  evaluated_at=utcnow(), scenario_id=before.scenario_id, scenario_kind=before.scenario_kind,
+                  scenario_context=before.scenario_context,
+                  revision_context=revision_context(investigation),
                   status="preliminary" if pending else "final", template_rationale=result.rationale)
     row = models.Recommendation(**values, triggers=[t.model_dump() for t in result.triggers])
     db.add(row)
@@ -482,11 +579,12 @@ def finish_revision(db, investigation, before, pending, evidence):
     facility = db.get(models.Facility, before.facility_id)
     final = evaluate(schemas.Facility.model_validate(facility), [schemas.Evidence.model_validate(e) for e in evidence],
                      utcnow(), operating_date=before.operating_date, target_mode=before.target_mode or "explicit",
-                     target_note=f"Investigation for saved target day {before.operating_date}")
-    for name in ("posture", "confidence", "confidence_reasons", "what_would_change", "evidence_ids", "lead_time_hours", "rationale"):
+                     target_note=original_target_note(db, before))
+    for name in ("posture", "confidence", "confidence_reasons", "what_would_change", "evidence_ids", "lead_time_hours", "rationale", "target_note"):
         setattr(pending, name, getattr(final, name))
     pending.triggers = [t.model_dump() for t in final.triggers]
     pending.status = "final"
+    pending.revision_context = revision_context(investigation)
     pending.template_rationale = final.rationale
     pending.revision_diff = diff(db, before, pending)
     record.append(db, "recommendation_revised", {"previous_recommendation_id": before.id, "recommendation_id": pending.id,
@@ -498,10 +596,10 @@ def finish_revision(db, investigation, before, pending, evidence):
 def run(investigation_id):
     with _run_lock, SessionLocal() as db:
         row = db.get(models.Investigation, investigation_id)
-        if row is None or row.status != "pending":
+        if row is None or row.status != "pending" or row.archived_at:
             return
         rec = db.get(models.Recommendation, row.recommendation_id)
-        body = schemas.InvestigationIn.model_validate(row.request)
+        body = schemas.InvestigationIn.model_validate({k: v for k, v in row.request.items() if k != "scheduled_job"})
         child = db.scalar(select(models.Recommendation.id).where(
             models.Recommendation.previous_recommendation_id == rec.id).limit(1))
         if child:
@@ -538,6 +636,12 @@ def run(investigation_id):
                 answer = {"answer": f"For {rec.operating_date}, a recheck is scheduled at {body.at.isoformat()}. [policy:calendar]",
                           "limitations": ["Runs while the scheduler is enabled"], "evidence_ids": [], "policy_ids": ["calendar"]}
                 label, row.status = "Deterministic schedule", "completed"
+            elif rec.scenario_kind in {"simulated", "replay"} and body.action != "ask_staff":
+                answer = summarize(rec, evidence, body)
+                answer["limitations"].append("Saved scenario only; live tools are disabled to prevent mixing evidence")
+                label, row.status = ("SIMULATED" if rec.scenario_kind == "simulated" else "REPLAY") + " record summary", "completed"
+                if body.action in CHECKS:
+                    revise(db, row, rec, evidence)
             elif record_only(body):
                 answer = summarize(rec, evidence, body)
                 # Other record-only questions must not pretend to know facts outside the record.
@@ -547,6 +651,7 @@ def run(investigation_id):
                 label, row.status = "Record summary", "completed"
             else:
                 pending = revise(db, row, rec, evidence, pending=True)
+                evidence = refresh_expired(evidence, state)
                 if body.action in CHECKS:
                     run_check(body.action, state)
                     answer = summarize(rec, merge_evidence(evidence, weather_agent.evidence_for(row.id)), body)
@@ -620,11 +725,12 @@ def ask_staff(db, investigation, rec, body, windows):
         actions = [{"action": "http", "label": option, "url": url, "method": "POST",
                     "headers": {"Content-Type": "application/json"}, "body": json.dumps({"option": option}),
                     "clear": True} for option in body.options]
-        message = (f"Evidence request for {rec.operating_date} commute {windows.commute_start:%H:%M}–{windows.commute_end:%H:%M} "
+        label = "SIMULATED: " if rec.scenario_kind == "simulated" else "REPLAY: " if rec.scenario_kind == "replay" else ""
+        message = (f"{label}Evidence request for {rec.operating_date} commute {windows.commute_start:%H:%M}–{windows.commute_end:%H:%M} "
                    f"({windows.open.tzinfo}). {body.question}\nReply using the buttons, or this link: {url}\n"
                    "This is a request for evidence, not an operating-status instruction.")
         ok, error = send_staff_push(person.ntfy_topic, "Closure Call: site evidence requested", message, actions)
-        row.delivery = {"ok": ok, "error": error}
+        row.delivery = {"ok": ok, "error": error, "sent_at": utcnow().isoformat()}
         record.append(db, "investigation.staff_requested", {"staff_question_id": row.id, "employee_id": person.id,
                       "operating_date": rec.operating_date, "delivery": row.delivery},
                       facility_id=rec.facility_id, evaluation_id=investigation.id)
@@ -632,6 +738,13 @@ def ask_staff(db, investigation, rec, body, windows):
 
 
 def submit_staff(db, staff, option, *, demo=False):
+    with _run_lock:
+        return _submit_staff(db, staff, option, demo=demo)
+
+
+def _submit_staff(db, staff, option, *, demo=False):
+    if staff.archived_at:
+        raise HTTPException(410, "This demo staff question was reset")
     if option not in staff.options:
         raise HTTPException(422, "Choose one of the offered options")
     now = utcnow()
@@ -646,12 +759,14 @@ def submit_staff(db, staff, option, *, demo=False):
         raise HTTPException(409, "This request has already been answered")
     investigation = db.get(models.Investigation, staff.investigation_id)
     rec = db.get(models.Recommendation, investigation.recommendation_id)
+    demo = demo or rec.scenario_kind == "simulated"
     person = db.get(models.Employee, staff.employee_id)
     if person.role != "facility_ops":
         db.rollback()
         raise HTTPException(403, "Only facility operations reports can be submitted")
     fac, windows, evidence = context(db, rec)
     ev = schemas.Evidence(id=uuid.uuid4().hex, source="human", kind="site_report", status="ok", source_time=now,
+                          scenario_id=rec.scenario_id, scenario_kind=rec.scenario_kind,
                           retrieved_at=now, valid_until=windows.commute_end,
                           relevance_note=("SIMULATED for the demo. " if demo else "") + f"Reported by {person.name} ({person.role})",
                           value={"authority": "human_reported", "source_name": f"reported by {person.name} ({person.role})",
@@ -664,11 +779,15 @@ def submit_staff(db, staff, option, *, demo=False):
     # Include all staff replies so a safe reply cannot erase another person's unsafe report.
     merged = merge_evidence(evidence, weather_agent.evidence_for(investigation.id))
     latest = db.scalar(select(models.Recommendation).where(models.Recommendation.facility_id == fac.id,
+                       models.Recommendation.scenario_id == rec.scenario_id, models.Recommendation.archived_at.is_(None),
                        models.Recommendation.operating_date == rec.operating_date).order_by(models.Recommendation.evaluated_at.desc()).limit(1))
     if latest and latest.id != rec.id:
         _, _, recent = context(db, latest)
         merged = merge_evidence(recent, weather_agent.evidence_for(investigation.id))
         rec = latest
+    refresh_state = runtime.new_state(evaluation_id=investigation.id, facility_id=fac.id,
+        recommendation_id=rec.id, operating_date=rec.operating_date, tools_used=[], tool_lock=threading.Lock())
+    merged = refresh_expired(merged, refresh_state)
     revision = revise(db, investigation, rec, merged)
     remaining = db.scalar(select(models.StaffQuestion.id).where(models.StaffQuestion.investigation_id == investigation.id,
                           models.StaffQuestion.responded_at.is_(None), models.StaffQuestion.expires_at > now).limit(1))

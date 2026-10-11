@@ -26,6 +26,11 @@ BASE = "https://api.weather.gov"
 CACHE_TTL_SECONDS = 120
 _cache: dict[str, tuple[float, bytes, datetime]] = {}
 
+
+def clear_cache():
+    """Bypass cached HTTP responses before a deterministic stale-evidence refresh."""
+    _cache.clear()
+
 SEVERITY_RANK = {"Extreme": 0, "Severe": 1, "Moderate": 2, "Minor": 3}
 URGENCY_RANK = {"Immediate": 0, "Expected": 1, "Future": 2, "Past": 3}
 # UGC prefixes of marine zones. Alerts covering only water can't be evaluated as a facility.

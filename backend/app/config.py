@@ -71,6 +71,7 @@ class Settings:
     obj_secret_key: str = field(default_factory=lambda: _pick("OBJ_SECRET_KEY"), repr=False)
 
     ntfy_topic: str = field(default_factory=lambda: _pick("NTFY_TOPIC"))
+    demo_topic_suffix: str = field(default_factory=lambda: _pick("DEMO_TOPIC_SUFFIX"))
     resend_api_key: str = field(default_factory=lambda: _pick("RESEND_API_KEY"), repr=False)
     resend_from: str = field(default_factory=lambda: _pick("RESEND_FROM", default="Closure Call <onboarding@resend.dev>"))
     # For demos: send every email to this one inbox instead of the fake roster addresses.

@@ -9,7 +9,7 @@ const AUTHORITY: Record<string, { label: string; style: string }> = {
 };
 const AGENT_LABEL: Record<string, string> = { roads: "Roads", schools: "Schools", public_safety: "Public safety", news: "News" };
 
-export const isLocal = (e: Evidence) => e.source === "local";
+export const isLocal = (e: Evidence) => e.source === "local" || e.kind === "local_fact";
 const fact = (e: Evidence) => (e.kind === "local_fact" ? (e.value as LocalFactValue) : null);
 const words = (s: string) => s.replace(/_/g, " ");
 
@@ -94,7 +94,7 @@ export default function LocalSignals({ evidence, tz }: { evidence: Evidence[]; t
               <ul className="mt-1 space-y-1 text-sm">
                 {mine.map((f) => (
                   <li key={f.item_id} className="flex flex-wrap items-baseline gap-2">
-                    <AuthorityBadge authority={f.authority} />
+                    <AuthorityBadge authority={(f as LocalFactValue & {simulated?: boolean}).simulated ? "SIMULATED" : f.authority} />
                     <a className="underline" href={f.link} target="_blank" rel="noreferrer">{f.location_text || f.title}</a>
                     {f.matches_facility_access_route && <span className="rounded bg-red-100 px-1 text-xs font-semibold text-red-800">on access segment {f.segments.join(", ")}</span>}
                     <span className="text-xs text-slate-600"><Where f={f} /></span>

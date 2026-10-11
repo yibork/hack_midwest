@@ -218,10 +218,20 @@ def recheck(db: Session, facility: models.Facility, day: date, job_key: str | No
             alerts, county = _local_prepare(fac, eid, people)
             local_run.run(fac, eid, alerts, people, county, use_models=False, day=day)
     now = utcnow()
-    det = evaluate(fac, weather_agent.evidence_for(eid), now, operating_date=day, target_mode="scheduled")
-    prev = db.scalar(select(models.Recommendation).where(models.Recommendation.facility_id == fac.id,
+    prev = db.scalar(select(models.Recommendation).where(models.Recommendation.scenario_kind.is_(None),
+                                                      models.Recommendation.archived_at.is_(None),
+                                                      models.Recommendation.facility_id == fac.id,
                                                          models.Recommendation.operating_date == day)
                      .order_by(models.Recommendation.evaluated_at.desc()).limit(1))
+    evidence = weather_agent.evidence_for(eid)
+    if prev:
+        from . import investigations
+        _, _, saved = investigations.context(db, prev)
+        state = new_state(evaluation_id=eid, facility_id=fac.id, recommendation_id=prev.id,
+                          operating_date=day, tools_used=[], tool_lock=threading.Lock())
+        evidence = investigations.refresh_expired(investigations.merge_evidence(saved, evidence), state)
+    det = evaluate(fac, evidence, now, operating_date=day, target_mode=prev.target_mode if prev else "scheduled",
+                   target_note=investigations.original_target_note(db, prev) if prev else None)
     prev_triggers = sorted(t["rule_id"] for t in prev.triggers) if prev else None
     changes = [] if prev else ["no earlier recommendation for this day"]
     if prev and prev.posture != det.posture:
@@ -233,8 +243,24 @@ def recheck(db: Session, facility: models.Facility, day: date, job_key: str | No
     result = {"evaluation_id": eid, "changed": bool(changes), "changes": changes, "posture": det.posture,
               "confidence": det.confidence, "lead_time_hours": det.lead_time_hours}
     if changes:
-        full = evaluate_facility(db, facility, target_date=day, scheduled=True)
-        result["recommendation_id"] = full.id
+        if prev:
+            # The deterministic recheck already has fresh evidence; don't spend model calls
+            # to fetch it again, or replace the calendar explanation with a job label.
+            accepted = investigations.request(db, prev, schemas.InvestigationIn(action="recheck_now"),
+                                              launch=False, scheduled_job=job_key or "automatic_recheck")
+            investigation = db.get(models.Investigation, accepted["investigation_id"])
+            revised = investigations.revise(db, investigation, prev, evidence)
+            investigation.status = "completed"
+            investigation.result = {**investigations.summarize(revised, evidence, schemas.InvestigationIn(action="explain_confidence")),
+                "source_label": "Deterministic scheduled recheck", "tools_used": state["tools_used"],
+                "new_evidence_ids": [e.id for e in weather_agent.evidence_for(eid)], "target_date": str(day)}
+            record.append(db, "investigation.answer", {"investigation_id": investigation.id, **investigation.result},
+                          facility_id=fac.id, evaluation_id=investigation.id)
+            db.commit()
+            result["recommendation_id"] = revised.id
+        else:
+            full = evaluate_facility(db, facility, target_date=day, scheduled=True)
+            result["recommendation_id"] = full.id
     record.append_now("scheduled.recheck", {**result, "job": job_key}, facility_id=fac.id, evaluation_id=eid)
     return result
 

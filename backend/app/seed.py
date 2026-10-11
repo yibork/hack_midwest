@@ -131,11 +131,40 @@ ROSTER = [
 ]
 
 PERSONAS = {
-    "ava": "Emergency, animal care: must report and acknowledge on closure days",
+    "mgr": "Facility manager: review, approve and send notices; receives staffing escalations",
+    "ava": "Emergency animal care, 05:00 shift: report safely and acknowledge the closure notice",
+    "jordan": "Cross-trained animal-care backup, not scheduled: gets a call-in only if the manager selects him",
     "sam": "Telework-ready, scheduled onsite: told to telework or report later",
     "noor": "Already teleworking: FYI by email only, never a push",
-    "eli": "Home under a warning while the office is normal: FYI, supervisor informed",
+    "priya": "Home county under the SIMULATED warning: personal exposure instructions, supervisor informed",
+    "hank": "Facility operations: receives ask-staff questions with response buttons",
 }
+
+# Stable keys/IDs; applied only in DEMO_MODE, including to an existing synthetic database.
+DEMO_OVERRIDES = {
+    "mgr": {1: "Maria Alvarez", 10: "closurecall-demo-manager"},
+    "ava": {1: "Dana R.", 11: "overland_park", 13: ["I-35"], 16: "early"},
+    "jordan": {10: "closurecall-demo-backup", 15: "day_off", 16: None},
+    "sam": {1: "Sam Okafor"},
+    "noor": {1: "Lee Chen"},
+    "priya": {1: "Priya Shah", 10: "closurecall-demo-priya"},
+    "hank": {1: "Pat Moreno", 10: "closurecall-demo-ops"},
+}
+
+
+def demo_roster():
+    if not settings.demo_mode:
+        return ROSTER
+    rows = []
+    for original in ROSTER:
+        row = list(original)
+        for index, value in DEMO_OVERRIDES.get(row[0], {}).items():
+            row[index] = value
+        suffix = settings.demo_topic_suffix.strip("-")
+        if row[10] and suffix:
+            row[10] = f"{row[10]}-{suffix}"
+        rows.append(tuple(row))
+    return rows
 
 log = logging.getLogger(__name__)
 _ready = False
@@ -185,7 +214,7 @@ def roster_shifts(day, workday: bool | None = None) -> list[schemas.Shift]:
     if workday is None:
         workday = calendar.is_operating_day(day)
     out = []
-    for key, *rest in ROSTER:
+    for key, *rest in demo_roster():
         status, shift = rest[14], rest[15]
         if not workday and key not in WEEKEND_CREW and status != "leave":
             status, shift = "day_off", None
@@ -221,7 +250,7 @@ def seed() -> None:
                 db.add(CriticalFunction(facility_id=FACILITY_ID, code=code, name=name, min_onsite=mins, notes=notes,
                                         operating_days=days))
             for (key, name, role, desig, sup, fns, primary, needs, lang, channels, topic, home, commute, routes,
-                 access, _, _, assignment) in ROSTER:
+                 access, _, _, assignment) in demo_roster():
                 lat, lon, _, _ = HOMES[home]
                 db.add(Employee(
                     id=emp_id(key), name=name, role=role, designation=desig,
@@ -240,6 +269,19 @@ def seed() -> None:
                     db.add(Assignment(employee_id=emp_id(key), facility_id=assignment[1], kind="detail_out",
                                       start_date=today - timedelta(days=2), end_date=today + timedelta(days=assignment[2])))
             db.commit()
+
+        if settings.demo_mode:
+            for row in demo_roster():
+                if row[0] not in DEMO_OVERRIDES:
+                    continue
+                person = db.get(Employee, emp_id(row[0]))
+                if person is None:
+                    continue
+                person.name, person.ntfy_topic = row[1], row[10]
+                person.functions, person.primary_function = row[5], row[6]
+                person.home_lat, person.home_lon, person.home_zone, person.home_county = HOMES[row[11]]
+                person.commute_routes = row[13]
+                person.email = _email(row[1])
 
         # Shifts from yesterday (overnight shifts run into today) through the next 8 days, from the
         # calendar: weekdays follow the roster; weekends and federal holidays only the weekend crew.

@@ -442,6 +442,11 @@ def clear_cache() -> None:
     _robots.clear()
 
 
+def invalidate_cache(source_ids: set[str]) -> None:
+    for source_id in source_ids:
+        _cache.pop(source_id, None)
+
+
 def fetch(src: Source, now: datetime | None = None) -> FeedResult:
     hit = _cache.get(src.id)
     if hit and time.monotonic() - hit[0] < src.refresh_minutes * 60:

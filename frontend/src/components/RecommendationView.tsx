@@ -181,8 +181,9 @@ export function EvidenceList({ evidence, tz }: { evidence: Evidence[]; tz: strin
                 <td className="py-2 pr-3"><StatusBadge status={e.status} /></td>
                 <td className="py-2 pr-3 font-mono uppercase">
                   {e.source}
+                  {e.scenario_kind && <div className="text-xs font-bold">{e.scenario_kind === "simulated" ? "SIMULATED" : "REPLAY"}</div>}
                   {e.source === 'human' && <div className="mt-1 rounded bg-purple-100 px-2 py-1 text-xs normal-case text-purple-900">Human reported {(e.value as {source_name?: string})?.source_name}{(e.value as {simulated?: boolean})?.simulated ? ' · SIMULATED for the demo' : ''}</div>}
-                  {isLocal(e) && <div className="mt-1"><AuthorityBadge authority={(e.value as { authority: string }).authority} /></div>}
+                  {isLocal(e) && !e.scenario_kind && <div className="mt-1"><AuthorityBadge authority={(e.value as { authority: string }).authority} /></div>}
                 </td>
                 <td className="py-2 pr-3">
                   <div className="font-semibold">{e.kind.replace(/_/g, " ")}</div>

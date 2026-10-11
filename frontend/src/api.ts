@@ -28,6 +28,7 @@ export interface AccessSegment {
 }
 
 export interface Evidence {
+  scenario_kind?: string | null;
   id: string;
   facility_id: string | null;
   evaluation_id: string | null;
@@ -101,8 +102,10 @@ export interface RevisionDiff {
   changes: Record<string, {before: unknown; after: unknown}>;
   recipient_counts: {before: unknown; after: unknown};
 }
+export interface RevisionContext {kind: string; label: string; question?: string; at: string; investigation_id?: string}
 export interface Investigation {
   id: string; recommendation_id: string; question: string; action: string | null; status: string;
+  created_at: string;
   revised_recommendation_id: string | null; budget: InvestigationBudget;
   result: {answer?: string; source_label?: string; limitations?: string[]; could_not_answer_because?: string;
     evidence_ids?: string[]; policy_ids?: string[]; new_evidence_ids?: string[]; tools_used?: string[]; target_date?: string};
@@ -133,6 +136,7 @@ export interface Recommendation {
   status: "preliminary" | "final" | null; // preliminary: a live road check is running; decisions are blocked
   previous_recommendation_id?: string | null;
   revision_diff?: RevisionDiff | null;
+  revision_context?: RevisionContext | null;
 }
 
 export interface DecisionClock {
@@ -531,11 +535,16 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
 }
 
 export const api = {
-  investigate: (id: string, body: InvestigationRequest) => request<{investigation_id: string}>(`/recommendations/${id}/investigate`, {method: 'POST', body: JSON.stringify(body)}),
-  investigations: (id: string) => request<Investigation[]>(`/recommendations/${id}/investigations`),
+  demoState: () => request<{enabled: boolean; mode: string; label: string; recommendation_id: string | null; facility_id: string; captured_at: string | null}>("/demo/state"),
+  demoRecordings: () => request<{id: string; captured_at: string; label: string}[]>("/demo/recordings"),
+  demoScenario: (mode: string, recording_id?: string) => post<RecommendationDetail>("/demo/scenario", {mode, recording_id}),
+  demoReset: () => post<{recordings_retained: boolean}>("/demo/reset"),
+  demoDeliveryStatus: () => request<{employee_id: string; ntfy_topic: string | null; last_delivery: {at: string; ok: boolean; error: string | null; kind: string} | null}[]>("/demo/delivery-status"),
+  investigate: (id: string, body: InvestigationRequest) => request<{investigation_id: string}>(`/recommendations/${id}/investigate`, {method: 'POST', body: JSON.stringify(body), signal: AbortSignal.timeout(15000)}),
+  investigations: (id: string) => request<Investigation[]>(`/recommendations/${id}/investigations`, {signal: AbortSignal.timeout(15000)}),
   investigation: (id: string) => request<Investigation>(`/investigations/${id}`),
-  suggestions: (id: string) => request<{suggestions: {action: string; label: string}[]; budget: InvestigationBudget}>(`/recommendations/${id}/suggestions`),
-  staffCandidates: (id: string) => request<{id: string; name: string; role: string}[]>(`/recommendations/${id}/staff-candidates`),
+  suggestions: (id: string) => request<{suggestions: {action: string; label: string}[]; budget: InvestigationBudget}>(`/recommendations/${id}/suggestions`, {signal: AbortSignal.timeout(15000)}),
+  staffCandidates: (id: string) => request<{id: string; name: string; role: string}[]>(`/recommendations/${id}/staff-candidates`, {signal: AbortSignal.timeout(15000)}),
   demoStaffResponse: (id: string, option: string) => request<{recommendation_id: string}>(`/staff-questions/${id}/demo-response`, {method: 'POST', body: JSON.stringify({option})}),
   thresholds: () => request<PolicyCatalog>("/thresholds"),
   health: () => request<{ status: string; demo_mode: boolean }>("/health"),
@@ -549,7 +558,7 @@ export const api = {
     post<RecommendationDetail>("/evaluate-point", { lat, lon, name, evaluation_id: evaluationId }),
   agentActivity: (p: { evaluation_id?: string; since?: string; facility_id?: string }) =>
     request<RecordEvent[]>(`/agent-activity${qs(p)}`),
-  recommendation: (id: string) => request<RecommendationDetail>(`/recommendations/${id}`),
+  recommendation: (id: string) => request<RecommendationDetail>(`/recommendations/${id}`, {signal: AbortSignal.timeout(15000)}),
   decide: (recommendationId: string, body: DecisionIn) =>
     post<Decision>(`/recommendations/${recommendationId}/decision`, body),
   decisionNotice: (decisionId: string) => request<NoticeDetail>(`/decisions/${decisionId}/notice`),

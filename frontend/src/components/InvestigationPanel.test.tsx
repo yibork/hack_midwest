@@ -29,10 +29,57 @@ it('sends the free-text question and staff request to the chosen persona', async
   fireEvent.change(screen.getByLabelText('Investigation question'), {target: {value: 'Is the access road safe?'}});
   fireEvent.click(screen.getByRole('button', {name: 'Ask'}));
   await waitFor(() => expect(api.investigate).toHaveBeenCalledWith('rec', {question: 'Is the access road safe?'}));
+  // A second request is permitted only after the first finishes; use a fresh panel here.
+  cleanup();
+  render(<MemoryRouter><InvestigationPanel rec={rec} onRevision={() => {}} /></MemoryRouter>);
+  await screen.findByText('3 of 12 checks used');
   fireEvent.click(screen.getByRole('button', {name: 'Ask staff on site'}));
   fireEvent.change(screen.getByLabelText('Staff recipient'), {target: {value: 'ops'}});
   fireEvent.click(screen.getByRole('button', {name: 'Send evidence request'}));
   await waitFor(() => expect(api.investigate).toHaveBeenCalledWith('rec', expect.objectContaining({action: 'ask_staff', employee_id: 'ops', options: ['Unsafe', 'Safe', 'Unsure']})));
+});
+
+it('shows immediate submission feedback and live steps through completion', async () => {
+  let accept!: (r: {investigation_id: string}) => void;
+  vi.mocked(api.investigate).mockImplementation(() => new Promise(resolve => {accept = resolve;}));
+  render(<MemoryRouter><InvestigationPanel rec={rec} onRevision={() => {}} /></MemoryRouter>);
+  await screen.findByText('3 of 12 checks used');
+  fireEvent.click(screen.getByRole('button', {name: 'Why this confidence?'}));
+  expect(screen.getByText('Submitting investigation…')).toBeTruthy();
+  accept({investigation_id: 'inv'});
+  await screen.findByText('Queued — waiting to start');
+  expect(screen.getByText('Live tool steps')).toBeTruthy();
+  vi.mocked(api.investigations).mockResolvedValue([{
+    id: 'inv', recommendation_id: 'rec', question: 'explain confidence', action: 'explain_confidence', status: 'completed',
+    created_at: '2026-10-11T00:00:00Z', revised_recommendation_id: null,
+    budget: {used: 3, limit: 12, label: '3 of 12 checks used'},
+    result: {answer: 'For Tuesday, confidence is low.', source_label: 'Record summary'}, staff_questions: [],
+  }]);
+  await screen.findByText('For Tuesday, confidence is low.', {}, {timeout: 3000});
+  expect(screen.queryByText('Queued — waiting to start')).toBeNull();
+  expect(screen.getByText('Live tool steps')).toBeTruthy();
+});
+
+it('shows request failures instead of silently waiting', async () => {
+  vi.mocked(api.investigate).mockRejectedValue(new Error('Network request timed out'));
+  render(<MemoryRouter><InvestigationPanel rec={rec} onRevision={() => {}} /></MemoryRouter>);
+  await screen.findByText('3 of 12 checks used');
+  fireEvent.click(screen.getByRole('button', {name: 'Why this confidence?'}));
+  await screen.findByText('Network request timed out');
+  expect(screen.queryByText('Submitting investigation…')).toBeNull();
+});
+
+it('surfaces revision-loading failures and retries instead of getting stuck on preliminary', async () => {
+  const onRevision = vi.fn().mockRejectedValueOnce(new Error('temporary fetch failure')).mockResolvedValue(undefined);
+  vi.mocked(api.investigations).mockResolvedValue([{
+    id: 'inv', recommendation_id: 'rec', question: 'Check access', action: 'check_access_routes', status: 'completed',
+    created_at: '2026-10-11T00:00:00Z', revised_recommendation_id: 'revision',
+    budget: {used: 0, limit: 12, label: '0 of 12 checks used'}, result: {new_evidence_ids: ['ev']}, staff_questions: [],
+  }]);
+  render(<MemoryRouter><InvestigationPanel rec={rec} onRevision={onRevision} /></MemoryRouter>);
+  await screen.findByText(/Unable to load investigation progress: temporary fetch failure/);
+  await waitFor(() => expect(onRevision).toHaveBeenCalledTimes(2), {timeout: 3000});
+  await waitFor(() => expect(screen.queryByText(/Unable to load investigation progress/)).toBeNull());
 });
 
 it('disables new questions while a recommendation is preliminary', async () => {

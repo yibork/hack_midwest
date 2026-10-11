@@ -40,14 +40,19 @@ def facility_of(db: Session, person_id: str) -> models.Facility:
 
 
 def current_notice(db: Session, facility_id: str, sent_only: bool = False) -> models.Notice | None:
-    q = select(models.Notice).where(models.Notice.facility_id == facility_id)
+    q = select(models.Notice).where(models.Notice.facility_id == facility_id, models.Notice.archived_at.is_(None))
     if sent_only:
         q = q.where(models.Notice.sent_at.is_not(None))
     return db.scalar(q.order_by(models.Notice.created_at.desc()).limit(1))
 
 
 def latest_recommendation(db: Session, facility_id: str) -> models.Recommendation | None:
+    from .demo import active_recommendation
+    active = active_recommendation(db, facility_id)
+    if active:
+        return active
     return db.scalar(select(models.Recommendation).where(models.Recommendation.facility_id == facility_id)
+                     .where(models.Recommendation.archived_at.is_(None))
                      .order_by(models.Recommendation.evaluated_at.desc()).limit(1))
 
 
@@ -192,6 +197,7 @@ def my_status(v: Viewer = Depends(require("employee")), db: Session = Depends(ge
     if notice:
         n = db.scalar(select(models.Notification).join(models.Notice, models.Notification.notice_id == models.Notice.id)
                       .where(models.Notice.facility_id == facility.id,
+                             models.Notice.archived_at.is_(None), models.Notification.archived_at.is_(None),
                              models.Notice.operating_date == notice.operating_date,
                              models.Notification.employee_id == person.id, models.Notification.sent_at.is_not(None),
                              models.Notification.message_type.in_(["action_required", "fyi", "call_in"]))

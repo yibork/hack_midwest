@@ -11,6 +11,7 @@ import SecurityPage from "./pages/SecurityPage";
 import SourcesPage from "./pages/SourcesPage";
 import TeamPage from "./pages/TeamPage";
 import ThresholdsPage from "./pages/ThresholdsPage";
+import { ScenarioBanner } from "./components/DemoScenario";
 
 const NAV: Record<ViewerRole, { to: string; label: string; hint: string }[]> = {
   facility_manager: [
@@ -61,6 +62,7 @@ function Shell() {
         </p>
       </nav>
       <main className="min-w-0 flex-1 p-4 md:p-6">
+        <ScenarioBanner />
         {!ready ? (
           <div role="status" className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">
             Choose who you're viewing as in the menu.

@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, type Investigation, type InvestigationRequest, type RecommendationDetail } from '../api';
 import AgentActivity from './AgentActivity';
-import { Button, Card, ErrorBox, useAsync } from './ui';
+import { Button, Card, ErrorBox, Loading, useAsync } from './ui';
+import RevisionChanges from './RevisionChanges';
 
-export default function InvestigationPanel({rec, onRevision}: {rec: RecommendationDetail; onRevision: (id: string) => void}) {
+export default function InvestigationPanel({rec, onRevision}: {rec: RecommendationDetail; onRevision: (id: string) => void | Promise<void>}) {
   const [thread, setThread] = useState<Investigation[]>([]);
   const [question, setQuestion] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [progressError, setProgressError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<'schedule' | 'staff' | null>(null);
   const [at, setAt] = useState('');
@@ -20,7 +22,10 @@ export default function InvestigationPanel({rec, onRevision}: {rec: Recommendati
   const seen = useRef(new Set<string>());
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
     const load = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const rows = await api.investigations(rec.id);
         if (cancelled) return;
@@ -30,11 +35,13 @@ export default function InvestigationPanel({rec, onRevision}: {rec: Recommendati
         if (revised) {
           const key = `${revised.revised_recommendation_id}:${revised.status}:${revised.result.new_evidence_ids?.join(',')}`;
           if (!seen.current.has(key)) {
+            await callback.current(revised.revised_recommendation_id!);
             seen.current.add(key);
-            callback.current(revised.revised_recommendation_id!);
           }
         }
-      } catch (e) { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); }
+        if (!cancelled) setProgressError(null);
+      } catch (e) { if (!cancelled) setProgressError(`Unable to load investigation progress: ${e instanceof Error ? e.message : String(e)}. Retrying…`); }
+      finally {inFlight = false;}
     };
     load();
     const timer = setInterval(load, 1200);
@@ -46,9 +53,15 @@ export default function InvestigationPanel({rec, onRevision}: {rec: Recommendati
   async function submit(body: InvestigationRequest) {
     setBusy(true); setError(null);
     try {
-      await api.investigate(rec.id, body);
+      const accepted = await api.investigate(rec.id, body);
+      // Show the accepted work immediately, before the first polling round trip.
+      setThread(rows => [...rows.filter(r => r.id !== accepted.investigation_id), {
+        id: accepted.investigation_id, recommendation_id: rec.id, question: body.question ?? body.action!.replace(/_/g, ' '),
+        action: body.action ?? null, status: 'pending', created_at: new Date().toISOString(),
+        revised_recommendation_id: null, budget: budget ?? {used: 0, limit: 12, label: '0 of 12 checks used'},
+        result: {}, staff_questions: [],
+      }]);
       setQuestion(''); setForm(null);
-      setThread(await api.investigations(rec.id));
       chips.reload();
     } catch(e) {setError(e instanceof Error ? e.message : String(e));}
     finally {setBusy(false);}
@@ -56,6 +69,7 @@ export default function InvestigationPanel({rec, onRevision}: {rec: Recommendati
   return <aside className="space-y-4">
     <Card title="Ask for more evidence">
       <p className="text-sm text-slate-600">All checks concern {day}, {rec.operating_date}, and its travel/work windows.</p>
+      {(busy || running || rec.status === 'preliminary') && <div role="status" aria-live="polite"><Loading label={busy ? 'Submitting investigation…' : running ? 'Investigation in progress — live steps below' : 'Evidence check in progress — waiting for the final recommendation'} /></div>}
       {budget && <div className="my-3"><div className="text-sm font-semibold">{budget.label}</div><meter className="w-full" min={0} max={budget.limit} value={budget.used} /><p className="text-xs text-slate-500">Model calls share this budget across revisions. One-tap checks and record explanations stay available.</p></div>}
       <div className="my-3 flex flex-wrap gap-2">{chips.data?.suggestions.map(c => <button key={c.action} className="rounded-full border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100 disabled:opacity-50" disabled={busy || running || rec.status === 'preliminary'} onClick={() => c.action === 'schedule_recheck' ? setForm('schedule') : submit({action: c.action})}>{c.label}</button>)}</div>
       <form onSubmit={e => {e.preventDefault(); submit({question});}} className="space-y-2">
@@ -77,14 +91,14 @@ export default function InvestigationPanel({rec, onRevision}: {rec: Recommendati
         <Button type="submit" disabled={busy || !candidates.data?.length}>Send evidence request</Button>
       </form>}
       {error && <ErrorBox error={error} />}
+      {progressError && <ErrorBox error={progressError} />}
+      {chips.error && <ErrorBox error={`Suggestions unavailable: ${chips.error}`} onRetry={chips.reload} />}
     </Card>
-    {rec.revision_diff && <Card title="Changed since last look"><p className="text-sm">{rec.revision_diff.changed ? 'New evidence changed the recommendation. Review before approving.' : 'Checked again; posture and recipients are unchanged.'}</p>
-      {Object.entries(rec.revision_diff.changes).map(([field, change]) => <details key={field} className="mt-2 text-xs"><summary>{field.replace(/_/g, ' ')}</summary><div className="break-words">Before: {JSON.stringify(change.before)}<br/>After: {JSON.stringify(change.after)}</div></details>)}
-      <p className="mt-2 text-xs">Recipients: {JSON.stringify(rec.revision_diff.recipient_counts)}</p>
-    </Card>}
+    <RevisionChanges rec={rec} />
     <div className="space-y-3" aria-label="Investigation thread">{thread.map(i => <Card key={i.id} title={i.question}>
       <p className="text-xs text-slate-500">{i.status.replace(/_/g, ' ')}</p>
-      {['pending','running'].includes(i.status) && <AgentActivity evaluationId={i.id} live />}
+      {['pending','running'].includes(i.status) && <div role="status"><Loading label={i.status === 'pending' ? 'Queued — waiting to start' : 'Checking evidence…'} /></div>}
+      <AgentActivity evaluationId={i.id} live={['pending','running'].includes(i.status)} />
       {!!i.result.tools_used?.length && <p className="my-1 text-xs text-slate-600">Tools: {i.result.tools_used.join(', ')}</p>}
       {i.result.answer && <><p className="mt-2 text-sm leading-relaxed">{i.result.answer}</p><p className="mt-2 text-xs font-semibold text-indigo-800">{i.result.source_label}</p></>}
       <div className="mt-2 flex flex-wrap gap-2 text-xs">{Array.from(new Set([...(i.result.evidence_ids ?? []), ...(i.result.new_evidence_ids ?? [])])).map(id => <a className="underline" key={id} href={`/api/evidence/${id}`} target="_blank" rel="noreferrer">Evidence {id.slice(0,8)}</a>)}{i.result.policy_ids?.map(id => <Link className="underline" key={id} to={`/thresholds#${id}`}>{id}</Link>)}</div>

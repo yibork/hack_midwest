@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from . import models, people_api, pipeline, record, schemas, services
 from .db import get_db
+from .config import settings
 from .models import RecordEvent
 from .notify import NoDecisionError, send_notice
 from .roles import manager_only
@@ -177,7 +178,12 @@ def get_facility(facility_id: str, db: Session = Depends(get_db)):
             response_model=schemas.RecommendationDetail | None)
 def latest_recommendation(facility_id: str, db: Session = Depends(get_db)):
     _get_or_404(db, models.Facility, facility_id)
+    from .demo import active_recommendation
+    active = active_recommendation(db, facility_id)
+    if active:
+        return services.recommendation_detail(db, active)
     rec = db.scalar(select(models.Recommendation).where(models.Recommendation.facility_id == facility_id)
+                    .where(models.Recommendation.archived_at.is_(None))
                     .order_by(models.Recommendation.evaluated_at.desc()).limit(1))
     return services.recommendation_detail(db, rec) if rec else None
 
@@ -200,6 +206,13 @@ def evaluate_facility(facility_id: str, body: schemas.EvaluateIn | None = None, 
         raise HTTPException(403 if "DEMO_MODE" in str(e) else 422, str(e))
     except IntegrityError:
         raise HTTPException(409, f"evaluation {eid} already exists")
+    if settings.demo_mode and facility_id == "usda-kc-demo":
+        from .demo import LABELS, state
+        current = state(db)
+        current.mode = "live_today" if body and body.demo_workday else "live_next"
+        current.label = LABELS[current.mode]
+        current.recommendation_id, current.active_facility_id, current.captured_at = rec.id, rec.facility_id, None
+        db.commit()
     return services.recommendation_detail(db, rec)
 
 
@@ -244,6 +257,8 @@ def snapshot(digest: str):
 
 @router.post("/recommendations/{rec_id}/decision", response_model=schemas.Decision)
 def decide(rec_id: str, body: schemas.DecisionIn, db: Session = Depends(get_db)):
+    if _get_or_404(db, models.Recommendation, rec_id).archived_at:
+        raise HTTPException(409, "This demo recommendation was reset; evaluate again")
     rec = _get_or_404(db, models.Recommendation, rec_id)
     if rec.status == "preliminary":
         raise HTTPException(409, "Preliminary - road check in progress; decide once it is final.")
